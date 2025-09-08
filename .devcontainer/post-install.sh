@@ -14,6 +14,12 @@ curl -LO "https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/amd64/kubectl"
 chmod +x kubectl
 mv kubectl /usr/local/bin/kubectl
 
+KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+curl -LO https://github.com/go-task/task/releases/latest/download/task_linux_amd64.tar.gz
+tar -xf task_linux_amd64.tar.gz
+chmod +x task
+mv task /usr/local/bin/task
+
 docker network create -d=bridge --subnet=172.19.0.0/24 kind
 
 kind version
@@ -21,3 +27,4 @@ kubebuilder version
 docker --version
 go version
 kubectl version --client
+task --version
