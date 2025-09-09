@@ -7,17 +7,18 @@ set:
 
 vars:
   _USE_IMAGE_DIGESTS_FLAG: "{{if .USE_IMAGE_DIGESTS }}--use-image-digests{{end}}"
-  VERSION: '{{ .VERSION | default "0.0.1"}}'
+  VAULT_OPERATOR_DOCKER_TAG: '{{ .VAULT_OPERATOR_VERSION | default "latest" }}'
+  VAULT_OPERATOR_VERSION: '{{ .VAULT_OPERATOR_VERSION | default "0.0.1"}}'
   BUNDLE_CHANNELS: "{{if .CHANNELS }}--channels={{.CHANNELS}}{{end}}"
   BUNDLE_DEFAULT_CHANNEL: "{{if .DEFAULT_CHANNEL }}--default-channel={{.DEFAULT_CHANNEL}}{{end}}"
   _BUNDLE_METADATA_OPTS: "{{.BUNDLE_CHANNELS}} {{.BUNDLE_DEFAULT_CHANNEL}}"
   BUNDLE_METADATA_OPTS: "{{coalesce .BUNDLE_METADATA_OPTS ._BUNDLE_METADATA_OPTS}}"
-  BUNDLE_GEN_FLAGS: '{{ .BUNDLE_GEN_FLAGS | default (printf "-q --overwrite --version %s %s" .VERSION .BUNDLE_METADATA_OPTS) }}'
-  IMAGE_TAG_BASE: '{{ .IMAGE_TAG_BASE | default "ghcr.io/jynolen/vault-operator"}}'
-  BUNDLE_IMG: '{{ .BUNDLE_IMG | default (printf "%s-bundle:v%s" .IMAGE_TAG_BASE .VERSION) }}'
+  BUNDLE_GEN_FLAGS: '{{ .BUNDLE_GEN_FLAGS | default (printf "-q --overwrite --version %s %s" .VAULT_OPERATOR_VERSION .BUNDLE_METADATA_OPTS) }}'
+  IMAGE_TAG_BASE: '{{ .IMAGE_TAG_BASE | default "ghcr.io/jynolen"}}'
+  BUNDLE_IMG: '{{ .BUNDLE_IMG | default (printf "%s/vault-operator-bundle:v%s" .IMAGE_TAG_BASE .VAULT_OPERATOR_DOCKER_TAG) }}'
   _BUNDLE_GEN_FLAGS: '{{ printf "%s %s" ._BUNDLE_GEN_FLAGS ._USE_IMAGE_DIGESTS_FLAG }}'
   OPERATOR_SDK_VERSION: '{{ .OPERATOR_SDK_VERSION | default "v1.41.1" }}'
-  IMG: '{{ default "controller:latest" }}'
+  IMG: '{{ .IMG | default (printf "%s/vault-operator:%s" .IMAGE_TAG_BASE .VAULT_OPERATOR_DOCKER_TAG) }}'
   _GOBIN:
     sh: go env GOBIN
   GOBIN: '{{if ._GOBIN }}{{ printf "%s/bin"}}{{else}}{{._GOBIN}}{{end}}'
@@ -40,7 +41,7 @@ vars:
   GOLANGCI_LINT_VERSION: '{{ .GOLANGCI_LINT_VERSION | default "v2.4.0" }}'
   OPM: '{{ printf "%s/opm" .LOCALBIN}}'
   BUNDLE_IMGS: "{{ .BUNDLE_IMGS | default .BUNDLE_IMG }}"
-  CATALOG_IMG: '{{ .CATALOG_IMG | default (printf "%s-catalog:v%s" .IMAGE_TAG_BASE .VERSION) }}'
+  CATALOG_IMG: '{{ .CATALOG_IMG | default (printf "%s/vault-operator-catalog:v%s" .IMAGE_TAG_BASE .VAULT_OPERATOR_DOCKER_TAG ) }}'
   FROM_INDEX_OPT: "{{if .CATALOG_BASE_IMG }}--from-index {{.CATALOG_BASE_IMG}}{{end}}"
   ENVTEST_VERSION: "latest"
 
@@ -196,7 +197,8 @@ tasks:
     generates:
       - config/crd/bases/**
     sources:
-      - api/v1alpha1/**
+      - api/v1alpha1/**/*.go
+      - internal/**/*.go
 
   generate:
     desc: Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -213,6 +215,7 @@ tasks:
     desc: Run go fmt against code.
     cmds:
       - go fmt ./...
+  
   vet:
     desc: Run go vet against code.
     cmds:
@@ -309,17 +312,13 @@ tasks:
         sh: go list ./... | grep -v /e2e
     cmds:
       - go run ./cmd/main.go
-    sources:
-      - cmd/*
-      - internal/**
-      - api/**
 
   docker-build:
     desc: Build docker image with the manager.
     vars:
-      DOCKERFILE: "{{ .DOCKERFILE | default Dockerfile }}"
+      DOCKERFILE: '{{ .DOCKERFILE | default "Dockerfile" }}'
     cmds:
-      - "{{ .CONTAINER_TOOL }} build -t {{.IMG }} . -f {{ DOCKERFILE }}"
+      - "{{ .CONTAINER_TOOL }} build -t {{.IMG }} . -f {{ .DOCKERFILE }}"
     sources:
       - "{{ .DOCKERFILE }}"
       - cmd/*
@@ -362,10 +361,10 @@ tasks:
     generates:
       - "{{.ROOT_DIR}}/dist"
     sources:
-      - "{{.ROOT_DIR}}Dockerfile"
-      - "{{.ROOT_DIR}}cmd/*"
-      - "{{.ROOT_DIR}}internal/**"
-      - "{{.ROOT_DIR}}api/**"
+      - "{{.ROOT_DIR}}/Dockerfile"
+      - "{{.ROOT_DIR}}/cmd/*"
+      - "{{.ROOT_DIR}}/internal/**"
+      - "{{.ROOT_DIR}}/api/**"
 
   install:
     desc: Install CRDs into the K8s cluster specified in ~/.kube/config.

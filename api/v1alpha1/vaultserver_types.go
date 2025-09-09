@@ -83,7 +83,10 @@ type ConsulSpec struct {
 }
 
 // VaultServer is the Schema for the vaultservers API.
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=true
+
 type VaultServer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -269,12 +272,12 @@ type TelemetrySpec struct {
 	EnableHostnameLabel              bool          `json:"enable_hostname_label,omitempty"`
 	MetricsPrefix                    string        `json:"metrics_prefix,omitempty"`
 	LeaseMetricsEpsilon              time.Duration `json:"lease_metrics_epsilon,omitempty"`
-	NumLeaseMetricsTimeBuckets       int           `json:"num_lease_metrics_buckets,omitempty"`
+	NumLeaseMetricsTimeBuckets       int32         `json:"num_lease_metrics_buckets,omitempty"`
 	LeaseMetricsNameSpaceLabels      bool          `json:"add_lease_metrics_namespace_label,omitempty"`
 	RollbackMetricsIncludeMountPoint bool          `json:"add_mount_point_rollback_metrics,omitempty"`
 	FilterDefault                    bool          `json:"filter_default,omitempty"`
 	PrefixFilter                     []string      `json:"prefix_filter,omitempty"`
-	MaximumGaugeCardinality          int           `json:"maximum_gauge_cardinality,omitempty"`
+	MaximumGaugeCardinality          int32         `json:"maximum_gauge_cardinality,omitempty"`
 	UsageGaugePeriod                 time.Duration `json:"usage_gauge_period,omitempty"`
 
 	Statsite    StatSiteSpec    `json:"statsite,omitempty"`
@@ -843,9 +846,6 @@ type VaultServerStatus struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Conditions      []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
-
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
 
 // +kubebuilder:object:root=true
 
