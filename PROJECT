@@ -5,9 +5,19 @@
 domain: vault-operator.io
 layout:
 - go.kubebuilder.io/v4
+multigroup: true
 plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: vault-operator
 repo: github.com/jynolen/vault-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: vault-operator.io
+  kind: VaultServer
+  path: github.com/jynolen/vault-operator/api/v1alpha1
+  version: v1alpha1
 version: "3"

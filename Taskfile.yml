@@ -1,0 +1,454 @@
+# https://taskfile.dev
+
+version: "3"
+
+set:
+  - errexit
+
+vars:
+  _USE_IMAGE_DIGESTS_FLAG: "{{if .USE_IMAGE_DIGESTS }}--use-image-digests{{end}}"
+  VERSION: '{{ .VERSION | default "0.0.1"}}'
+  BUNDLE_CHANNELS: "{{if .CHANNELS }}--channels={{.CHANNELS}}{{end}}"
+  BUNDLE_DEFAULT_CHANNEL: "{{if .DEFAULT_CHANNEL }}--default-channel={{.DEFAULT_CHANNEL}}{{end}}"
+  _BUNDLE_METADATA_OPTS: "{{.BUNDLE_CHANNELS}} {{.BUNDLE_DEFAULT_CHANNEL}}"
+  BUNDLE_METADATA_OPTS: "{{coalesce .BUNDLE_METADATA_OPTS ._BUNDLE_METADATA_OPTS}}"
+  BUNDLE_GEN_FLAGS: '{{ .BUNDLE_GEN_FLAGS | default (printf "-q --overwrite --version %s %s" .VERSION .BUNDLE_METADATA_OPTS) }}'
+  IMAGE_TAG_BASE: '{{ .IMAGE_TAG_BASE | default "ghcr.io/jynolen/vault-operator"}}'
+  BUNDLE_IMG: '{{ .BUNDLE_IMG | default (printf "%s-bundle:v%s" .IMAGE_TAG_BASE .VERSION) }}'
+  _BUNDLE_GEN_FLAGS: '{{ printf "%s %s" ._BUNDLE_GEN_FLAGS ._USE_IMAGE_DIGESTS_FLAG }}'
+  OPERATOR_SDK_VERSION: '{{ .OPERATOR_SDK_VERSION | default "v1.41.1" }}'
+  IMG: '{{ default "controller:latest" }}'
+  _GOBIN:
+    sh: go env GOBIN
+  GOBIN: '{{if ._GOBIN }}{{ printf "%s/bin"}}{{else}}{{._GOBIN}}{{end}}'
+  CONTAINER_TOOL: '{{ .CONTAINER_TOOL | default "docker" }}'
+  SHELL: /usr/bin/env bash -o pipefail
+  SHELLFLAGS: -ec
+  KIND_CLUSTER: '{{ .KIND_CLUSTER| default "vault-operator-test-e2e" }}'
+  PLATFORMS: '{{ .PLATFORMS | default "linux/arm64,linux/amd64,linux/s390x,linux/ppc64le" }}'
+  ignore_not_found: "{{if not .ignore_not_found }}false{{end}}"
+  LOCALBIN: '{{ printf "%s/bin" .USER_WORKING_DIR }}'
+  KUBECTL: '{{ .KUBECTL | default "kubectl" }}'
+  KIND: '{{ .KIND | default "kind" }}'
+  CONTROLLER_GEN: '{{ printf "%s/controller-gen" .LOCALBIN}}'
+  KUSTOMIZE: '{{ printf "%s/kustomize" .LOCALBIN}}'
+  ENVTEST: '{{ printf "%s/setup-envtest" .LOCALBIN}}'
+  GOLANGCI_LINT: '{{ printf "%s/golangci-lint" .LOCALBIN}}'
+  KUSTOMIZE_VERSION: '{{ .KUSTOMIZE_VERSION | default "v5.6.0" }}'
+  CONTROLLER_TOOLS_VERSION: '{{ .CONTROLLER_TOOLS_VERSION | default "v0.18.0" }}'
+  ENVTEST_K8S_VERSION: "1.33.0"
+  GOLANGCI_LINT_VERSION: '{{ .GOLANGCI_LINT_VERSION | default "v2.4.0" }}'
+  OPM: '{{ printf "%s/opm" .LOCALBIN}}'
+  BUNDLE_IMGS: "{{ .BUNDLE_IMGS | default .BUNDLE_IMG }}"
+  CATALOG_IMG: '{{ .CATALOG_IMG | default (printf "%s-catalog:v%s" .IMAGE_TAG_BASE .VERSION) }}'
+  FROM_INDEX_OPT: "{{if .CATALOG_BASE_IMG }}--from-index {{.CATALOG_BASE_IMG}}{{end}}"
+  ENVTEST_VERSION: "latest"
+
+tasks:
+  default:
+    desc: Default target (build)
+    deps: [build]
+
+  bin:folder:
+    cmd: mkdir -p {{ .LOCALBIN }}
+    internal: true
+    status:
+      - test -d {{ .LOCALBIN }}
+    generates:
+      - "{{ .LOCALBIN }}"
+
+  bin:*:install:
+    label: "bin:{{index .MATCH 0}}:install"
+    internal: true
+    vars:
+      GOPKG: "{{ .GOPKG | default (index .MATCH 0) }}"
+      package: "{{ .GOPKG_SRC }}@{{ .GOPKG_VERSION }}"
+    dir: "{{ .LOCALBIN }}"
+    env:
+      GOBIN: "{{ .LOCALBIN }}"
+    cmds:
+      - echo Downloading {{ .package }}
+      - go install {{ .package }}
+      - ln -sf {{.GOPKG }}-{{ .GOPKG_VERSION }} {{.GOPKG }}
+    generates:
+      - "{{.GOPKG }}-{{ .GOPKG_VERSION }}"
+      - "{{.GOPKG }}"
+    status:
+      - test -x "{{.GOPKG }}-{{ .GOPKG_VERSION }}"
+      - test -L {{.GOPKG }}
+
+  bin:*:download:
+    label: "bin:{{index .MATCH 0}}:download"
+    internal: true
+    dir: "{{ .LOCALBIN }}"
+    vars:
+      EXECUTABLE: "{{index .MATCH 0}}"
+    cmds:
+      - curl -sSLo {{.EXECUTABLE}}-{{.VERSION}} {{ .SRC_URL }}
+      - chmod +x {{.EXECUTABLE}}-{{.VERSION}}
+      - ln -sf {{.EXECUTABLE}}-{{.VERSION}} {{.EXECUTABLE}}
+    generates:
+      - "{{.EXECUTABLE}}-{{.VERSION}}"
+      - "{{.EXECUTABLE}}"
+    status:
+      - test -x {{.EXECUTABLE}}-{{.VERSION}}
+      - test -L {{.EXECUTABLE}}
+
+  bin:go:envtest:install:
+    internal: true
+    cmds:
+      - task: bin:envtest:install
+        vars:
+          GOPKG: "setup-envtest"
+          GOPKG_SRC: sigs.k8s.io/controller-runtime/tools/setup-envtest
+          GOPKG_VERSION: "{{ .ENVTEST_VERSION }}"
+      - "{{ .LOCALBIN }}/setup-envtest use {{ .ENVTEST_K8S_VERSION }} --bin-dir {{ .LOCALBIN }} -p path"
+      - chmod 755 {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}
+    status:
+      - test -x {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/etcd
+      - test -x {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kube-apiserver
+      - test -x {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kubectl
+
+  bin:go:kustomize:install:
+    internal: true
+    cmds:
+      - task: bin:kustomize:install
+        vars:
+          GOPKG: "setup-envtest"
+          GOPKG_SRC: sigs.k8s.io/controller-runtime/tools/setup-envtest
+          GOPKG_VERSION: "{{ .ENVTEST_VERSION }}"
+
+  bin:go:golangci-lint:install:
+    internal: true
+    cmds:
+      - task: bin:golangci-lint:install
+        vars:
+          GOPKG_SRC: github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+          GOPKG_VERSION: "{{ .GOLANGCI_LINT_VERSION }}"
+
+  bin:go:controller-gen:install:
+    internal: true
+    cmds:
+      - task: bin:controller-gen:install
+        vars:
+          GOPKG_SRC: sigs.k8s.io/controller-tools/cmd/controller-gen
+          GOPKG_VERSION: "{{ .CONTROLLER_TOOLS_VERSION }}"
+
+  bin:external:opm:
+    internal: true
+    cmds:
+      - task: bin:opm:download
+        vars:
+          SRC_URL: https://github.com/operator-framework/operator-registry/releases/download/v1.55.0/{{OS}}-{{ARCH}}-opm
+          VERSION: v1.55.0
+
+  bin:external:operator-sdk:
+    internal: true
+    cmds:
+      - task: bin:operator-sdk:download
+        vars:
+          SRC_URL: https://github.com/operator-framework/operator-sdk/releases/download/{{.OPERATOR_SDK_VERSION}}/operator-sdk_{{OS}}_{{ARCH}}
+          VERSION: "{{.OPERATOR_SDK_VERSION}}"
+
+  bin:go-tools:
+    internal: true
+    deps:
+      - task: bin:folder
+      - task: bin:go:envtest:install
+      - task: bin:go:kustomize:install
+      - task: bin:go:golangci-lint:install
+      - task: bin:go:controller-gen:install
+
+  bin:external:
+    internal: true
+    deps:
+      - task: bin:folder
+      - task: bin:external:opm
+      - task: bin:external:operator-sdk
+  bin:
+    desc: Install all mandatory binaries
+    deps:
+      - task: bin:external
+      - task: bin:go-tools
+
+  catalog-push:
+    desc: Push a catalog image.
+    deps:
+      - catalog-build
+    cmds:
+      - task: docker-push
+        vars:
+          IMG: "{{ .CATALOG_IMG }}"
+
+  catalog-build:
+    desc: Push a catalog image.
+    deps:
+      - task: bin
+    cmds:
+      - "{{ .LOCALBIN }}/opm index add --container-tool {{ .CONTAINER_TOOL }} --mode semver --tag {{ .CATALOG_IMG }} --bundles {{ .BUNDLE_IMGS }} {{ .FROM_INDEX_OPT }}"
+
+  manifests:
+    desc: Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+    deps:
+      - bin:go:controller-gen:install
+    cmds:
+      - "{{ .LOCALBIN }}/controller-gen rbac:roleName=manager-role crd webhook paths='./...' output:crd:artifacts:config=config/crd/bases"
+    generates:
+      - config/crd/bases/**
+    sources:
+      - api/v1alpha1/**
+
+  generate:
+    desc: Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+    deps:
+      - bin:go:controller-gen:install
+    cmds:
+      - "{{ .LOCALBIN }}/controller-gen object:headerFile='hack/boilerplate.go.txt' paths='./...'"
+    generates:
+      - api/v1alpha1/zz_generated.deepcopy.go
+    sources:
+      - api/v1alpha1/*_types.go
+
+  fmt:
+    desc: Run go fmt against code.
+    cmds:
+      - go fmt ./...
+  vet:
+    desc: Run go vet against code.
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: Run tests.
+    deps:
+      - bin:go:envtest:install
+      - manifests
+      - generate
+      - fmt
+      - vet
+    env:
+      KUBEBUILDER_ASSETS:
+        sh: "{{ .LOCALBIN }}/setup-envtest use --bin-dir {{ .LOCALBIN }} -p path"
+    vars:
+      GO_LIST:
+        sh: go list ./... | grep -v /e2e
+    cmds:
+      - go test {{.GO_LIST | replace "\n" " "}} -coverprofile cover.out
+
+  setup-test-e2e:
+    desc: Set up a Kind cluster for e2e tests if it does not exist
+    cmds:
+      - "{{ .KIND }} create cluster --name {{.KIND_CLUSTER}}"
+    status:
+      - kind get clusters | grep {{.KIND_CLUSTER}}
+
+  test-e2e:
+    desc: Run the e2e tests. Expected an isolated environment using Kind.
+    deps:
+      - setup-test-e2e
+      - manifests
+      - generate
+      - fmt
+      - vet
+    env:
+      KIND_CLUSTER: "{{.KIND_CLUSTER }}"
+    cmds:
+      - defer:
+          task: cleanup-test-e2e
+      - cmd: go test ./test/e2e/ -v -ginkgo.v
+
+  cleanup-test-e2e:
+    desc: Tear down the Kind cluster used for e2e tests
+    cmd: "{{ .KIND }} delete cluster --name {{.KIND_CLUSTER}}"
+    status:
+      - kind get clusters | grep {{.KIND_CLUSTER}}
+
+  lint:
+    desc: Run golangci-lint linter
+    deps:
+      - bin:go:golangci-lint:install
+    cmd: "{{ .LOCALBIN }}/golangci-lint run"
+
+  lint-fix:
+    desc: Run golangci-lint linter and perform fixes
+    deps:
+      - bin:go:golangci-lint:install
+    cmd: "{{ .LOCALBIN }}/golangci-lint run --fix"
+
+  lint-config:
+    desc: Verify golangci-lint linter configuration
+    deps:
+      - bin:go:golangci-lint:install
+    cmd: "{{ .LOCALBIN }}/golangci-lint config verify"
+
+  build:
+    desc: Build manager binary.
+    deps:
+      - manifests
+      - generate
+      - fmt
+      - vet
+    vars:
+      GO_LIST:
+        sh: go list ./... | grep -v /e2e
+    cmds:
+      - go build -o bin/manager cmd/main.go
+    sources:
+      - cmd/*
+      - internal/**
+
+  run:
+    desc: Run a controller from your host.
+    deps:
+      - manifests
+      - generate
+      - fmt
+      - vet
+    vars:
+      GO_LIST:
+        sh: go list ./... | grep -v /e2e
+    cmds:
+      - go run ./cmd/main.go
+    sources:
+      - cmd/*
+      - internal/**
+      - api/**
+
+  docker-build:
+    desc: Build docker image with the manager.
+    vars:
+      DOCKERFILE: "{{ .DOCKERFILE | default Dockerfile }}"
+    cmds:
+      - "{{ .CONTAINER_TOOL }} build -t {{.IMG }} . -f {{ DOCKERFILE }}"
+    sources:
+      - "{{ .DOCKERFILE }}"
+      - cmd/*
+      - internal/**
+      - api/**
+
+  docker-push:
+    desc: Push docker image with the manager.
+    deps:
+      - docker-build
+    cmds:
+      - "{{ .CONTAINER_TOOL }} push {{.IMG }}"
+
+  docker-buildx:
+    desc: Build and push docker image for the manager for cross-platform support
+    cmds:
+      - sed -e '1 s/\(^FROM\)/FROM --platform=${BUILDPLATFORM}/; t' -e ' 1,// s//FROM --platform=${BUILDPLATFORM}/' Dockerfile > Dockerfile.cross
+      - "{{ .CONTAINER_TOOL }} buildx create --name vault-operator-builder"
+      - "{{ .CONTAINER_TOOL }} buildx use vault-operator-builder"
+      - "{{ .CONTAINER_TOOL }} buildx build --push --platform={{.PLATFORMS}} --tag {{.IMG}} -f Dockerfile.cross ."
+      - "{{ .CONTAINER_TOOL }} buildx rm vault-operator-builder"
+      - rm Dockerfile.cross
+    sources:
+      - Dockerfile
+      - cmd/*
+      - internal/**
+      - api/**
+
+  build-installer:
+    desc: Generate a consolidated YAML with CRDs and deployment.
+    deps:
+      - manifests
+      - generate
+      - bin:go:kustomize:install
+    dir: config/default
+    cmds:
+      - mkdir -p {{.ROOT_DIR}}/dist
+      - "{{ .LOCALBIN }}/kustomize edit set image controller={{.IMG}}"
+      - "{{ .LOCALBIN }}/kustomize build config/default > {{.ROOT_DIR}}/dist/install.yaml"
+    generates:
+      - "{{.ROOT_DIR}}/dist"
+    sources:
+      - "{{.ROOT_DIR}}Dockerfile"
+      - "{{.ROOT_DIR}}cmd/*"
+      - "{{.ROOT_DIR}}internal/**"
+      - "{{.ROOT_DIR}}api/**"
+
+  install:
+    desc: Install CRDs into the K8s cluster specified in ~/.kube/config.
+    deps:
+      - manifests
+      - bin:go:kustomize:install
+    cmd: "{{ .KUBECTL }} apply -k config/crd"
+
+  uninstall:
+    desc: Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+    deps:
+      - manifests
+      - bin:go:kustomize:install
+    cmd: "{{ .KUBECTL }} delete --ignore-not-found=false -k config/crd"
+
+  deploy:
+    desc: Deploy controller to the K8s cluster specified in ~/.kube/config.
+    deps:
+      - manifests
+      - bin:go:kustomize:install
+    dir: config/manager
+    cmds:
+      - "{{ .LOCALBIN }}/kustomize edit set image controller={{.IMG}}"
+      - "{{ .KUBECTL }} apply -k {{.ROOT_DIR}}/config/default"
+
+  undeploy:
+    desc: Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+    deps:
+      - bin:go:kustomize:install
+    cmds:
+      - "{{ .KUBECTL }} delete --ignore-not-found=false -k {{.ROOT_DIR}}/config/default"
+
+  bundle-push:
+    deps:
+      - bundle-build
+    desc: Push the bundle image.
+    cmds:
+      - task: docker-push
+        vars:
+          IMG: "{{ .BUNDLE_IMG }}"
+
+  bundle-build:
+    desc: Build the bundle image.
+    cmds:
+      - task: docker-build
+        vars:
+          IMG: "{{ .BUNDLE_IMG }}"
+          DOCKERFILE: bundle.Dockerfile
+
+  bundle:operator-sdk:generate:kustomize:
+    internal: true
+    deps:
+      - bin:external:operator-sdk
+    cmds:
+      - "{{ .LOCALBIN }}/operator-sdk generate kustomize manifests -q"
+    generates:
+      - "config/manifests/bases/**"
+    sources:
+      - api/v1alpha1/**
+
+  bundle:kustomize:set:image:
+    deps:
+      - bin:go:kustomize:install
+      - bundle:operator-sdk:generate:kustomize
+    internal: true
+    dir: "{{.ROOT_DIR}}/config/manager"
+    cmds:
+      - "{{ .KUSTOMIZE }} edit set image controller={{.IMG}}"
+    sources:
+      - config/manager/**
+
+  bundle:
+    desc: Generate bundle manifests and metadata, then validate generated files.
+    deps:
+      - bin:go:kustomize:install
+      - bin:external:operator-sdk
+      - manifests
+      - bundle:kustomize:set:image
+    cmds:
+      - "{{ .LOCALBIN }}/kustomize build config/manifests | {{ .LOCALBIN }}/operator-sdk generate bundle {{ .BUNDLE_GEN_FLAGS }}"
+      - "{{ .LOCALBIN }}/operator-sdk bundle validate ./bundle"
+    sources:
+      - config/manifests/**
+    generates:
+      - bundle.Dockerfile
+      - bundle/**

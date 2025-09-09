@@ -1,0 +1,48 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+  name: vault-operator.v0.0.0
+  namespace: placeholder
+spec:
+  minKubeVersion: 1.30.1
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: VaultServer is the Schema for the vaultservers API.
+      displayName: Vault Server
+      kind: VaultServer
+      name: vaultservers.vault-operator.io
+      version: v1alpha1
+  description: vault-operator
+  displayName: vault-operator
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: false
+    type: OwnNamespace
+  - supported: false
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - vault
+  links:
+  - name: Vault Operator
+    url: https://vault-operator.domain
+  maintainers:
+  - email: jynolen@gmail.com
+    name: Jean
+  maturity: alpha
+  provider:
+    name: vault
+  version: 0.0.0

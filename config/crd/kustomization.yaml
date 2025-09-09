@@ -1,0 +1,2 @@
+resources:
+- bases/vault-operator.io_vaultservers.yaml

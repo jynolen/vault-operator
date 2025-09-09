@@ -1,0 +1,2158 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: vaultservers.vault-operator.io
+spec:
+  group: vault-operator.io
+  names:
+    kind: VaultServer
+    listKind: VaultServerList
+    plural: vaultservers
+    singular: vaultserver
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: VaultServer is the Schema for the vaultservers API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              config:
+                properties:
+                  adaptiveOverloadProtection:
+                    properties:
+                      disableWriteController:
+                        type: boolean
+                    type: object
+                  administrativeNamespacePath:
+                    type: string
+                  cacheSize:
+                    format: int32
+                    type: integer
+                  clusterName:
+                    type: string
+                  defaultLeaseTTL:
+                    description: |-
+                      A Duration represents the elapsed time between two instants
+                      as an int64 nanosecond count. The representation limits the
+                      largest representable duration to approximately 290 years.
+                    format: int64
+                    type: integer
+                  defaultMaxRequestDuration:
+                    description: |-
+                      A Duration represents the elapsed time between two instants
+                      as an int64 nanosecond count. The representation limits the
+                      largest representable duration to approximately 290 years.
+                    format: int64
+                    type: integer
+                  detectDeadlocks:
+                    enum:
+                    - statelock
+                    - quotas
+                    - expiration
+                    type: string
+                  disableCache:
+                    type: boolean
+                  disableClustering:
+                    type: boolean
+                  disableMLock:
+                    type: boolean
+                  disablePerformanceStandby:
+                    type: boolean
+                  disableSealwrap:
+                    type: boolean
+                  enablePostUnsealTrace:
+                    type: boolean
+                  enableResponseHeaderHostname:
+                    type: boolean
+                  enableResponseHeaderRaftNodeId:
+                    type: boolean
+                  experiments:
+                    items:
+                      type: string
+                    type: array
+                  impreciseLeaseRoleTracking:
+                    type: boolean
+                  introspectionEndpoint:
+                    type: string
+                  kmsLibrary:
+                    description: Enterprise features stanza
+                    properties:
+                      library:
+                        description: Selects a key from a ConfigMap.
+                        properties:
+                          key:
+                            description: The key to select.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the ConfigMap or its key
+                              must be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      name:
+                        type: string
+                      type:
+                        enum:
+                        - pkcs11
+                        type: string
+                    type: object
+                  license:
+                    properties:
+                      secretKeyRef:
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    required:
+                    - secretKeyRef
+                    type: object
+                  listener:
+                    description: OSS features stanza
+                    properties:
+                      chrootNamespace:
+                        type: string
+                      cors:
+                        properties:
+                          AllowedHeaders:
+                            items:
+                              type: string
+                            type: array
+                          AllowedOrigins:
+                            items:
+                              type: string
+                            type: array
+                          Enabled:
+                            type: boolean
+                        type: object
+                      customMaxJson:
+                        properties:
+                          ArrayElementCount:
+                            format: int32
+                            type: integer
+                          Depth:
+                            format: int32
+                            type: integer
+                          ObjectEntryCount:
+                            format: int32
+                            type: integer
+                          StringValueLength:
+                            format: int32
+                            type: integer
+                        type: object
+                      customResponseHeaders:
+                        properties:
+                          collectiveStatusCode:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          default:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          specificStatusCode:
+                            additionalProperties:
+                              type: string
+                            type: object
+                        type: object
+                      disableReplicationStatusEndpoints:
+                        type: boolean
+                      disableRequestLimiter:
+                        type: boolean
+                      httpTimeout:
+                        properties:
+                          idle:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                          read:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                          readHeader:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                          write:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                        type: object
+                      maxRequestLimit:
+                        properties:
+                          duration:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                          size:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                        type: object
+                      proxyProcotol:
+                        properties:
+                          authorizedAddrs:
+                            items:
+                              type: string
+                            minItems: 1
+                            type: array
+                          behavior:
+                            enum:
+                            - use_always
+                            - allow_authorized
+                            - deny_unauthorized
+                            type: string
+                        required:
+                        - authorizedAddrs
+                        - behavior
+                        type: object
+                      redact:
+                        properties:
+                          Addresses:
+                            type: boolean
+                          ClusterName:
+                            type: boolean
+                          Version:
+                            type: boolean
+                        type: object
+                      requireRequestHeader:
+                        type: boolean
+                      tls:
+                        properties:
+                          certificate:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          cipherSuites:
+                            enum:
+                            - TLS_RSA_WITH_RC4_128_SHA
+                            - TLS_RSA_WITH_3DES_EDE_CBC_SHA
+                            - TLS_RSA_WITH_AES_128_CBC_SHA
+                            - TLS_RSA_WITH_AES_256_CBC_SHA
+                            - TLS_RSA_WITH_AES_128_CBC_SHA256
+                            - TLS_RSA_WITH_AES_128_GCM_SHA256
+                            - TLS_RSA_WITH_AES_256_GCM_SHA384
+                            - TLS_ECDHE_ECDSA_WITH_RC4_128_SHA
+                            - TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
+                            - TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
+                            - TLS_ECDHE_RSA_WITH_RC4_128_SHA
+                            - TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA
+                            - TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
+                            - TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
+                            - TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
+                            - TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
+                            - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+                            - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+                            - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+                            - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+                            - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
+                            - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+                            - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+                            - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+                            - TLS_AES_128_GCM_SHA256
+                            - TLS_AES_256_GCM_SHA384
+                            - TLS_CHACHA20_POLY1305_SHA256
+                            type: string
+                          disable:
+                            type: boolean
+                          disableClientCerts:
+                            type: boolean
+                          license:
+                            properties:
+                              configMapRef:
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - configMapRef
+                            type: object
+                          maxVersion:
+                            enum:
+                            - tls10
+                            - tls11
+                            - tls12
+                            - tls13
+                            type: string
+                          minVersion:
+                            enum:
+                            - tls10
+                            - tls11
+                            - tls12
+                            - tls13
+                            type: string
+                          requireAndVerifyClientCert:
+                            type: boolean
+                        type: object
+                      unauthenticatedInFlightRequestsAccess:
+                        type: boolean
+                      unauthenticatedMetricsAccess:
+                        type: boolean
+                      unauthenticatedPprofAccess:
+                        type: boolean
+                      xForwardedFor:
+                        properties:
+                          AuthorizedAddrs:
+                            items:
+                              type: string
+                            type: array
+                          ClientCertHeader:
+                            type: string
+                          ClientCertHeaderDecoders:
+                            enum:
+                            - BASE64
+                            - DER
+                            - URL
+                            items:
+                              type: string
+                            type: array
+                          HopSkips:
+                            type: string
+                          RejectNotAuthorized:
+                            type: boolean
+                          RejectNotPresent:
+                            type: boolean
+                        type: object
+                    type: object
+                  logFormat:
+                    enum:
+                    - standard
+                    - json
+                    type: string
+                  logLevel:
+                    enum:
+                    - trace
+                    - debug
+                    - info
+                    - warn
+                    - error
+                    type: string
+                  maxLeaseTTL:
+                    description: |-
+                      A Duration represents the elapsed time between two instants
+                      as an int64 nanosecond count. The representation limits the
+                      largest representable duration to approximately 290 years.
+                    format: int64
+                    type: integer
+                  rawStorageEndpoint:
+                    type: string
+                  removeIrrevocableLeaseAfter:
+                    description: |-
+                      A Duration represents the elapsed time between two instants
+                      as an int64 nanosecond count. The representation limits the
+                      largest representable duration to approximately 290 years.
+                    format: int64
+                    type: integer
+                  replication:
+                    properties:
+                      allowForwardingViaHeader:
+                        type: boolean
+                      bestEffortWalWaitDuratione:
+                        description: |-
+                          A Duration represents the elapsed time between two instants
+                          as an int64 nanosecond count. The representation limits the
+                          largest representable duration to approximately 290 years.
+                        format: int64
+                        type: integer
+                      logshipperBufferLength:
+                        format: int32
+                        type: integer
+                      logshipperBufferSize:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      resolverDiscoverServers:
+                        type: boolean
+                    type: object
+                  reporting:
+                    properties:
+                      disableProductUsageReporting:
+                        type: boolean
+                      license:
+                        properties:
+                          billingStartTimestamp:
+                            format: int32
+                            type: integer
+                          developmentCluster:
+                            type: boolean
+                          enabled:
+                            type: boolean
+                        type: object
+                      snapshotRetentionTime:
+                        description: |-
+                          A Duration represents the elapsed time between two instants
+                          as an int64 nanosecond count. The representation limits the
+                          largest representable duration to approximately 290 years.
+                        format: int64
+                        type: integer
+                    type: object
+                  seal:
+                    properties:
+                      aliCloudKms:
+                        properties:
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          disabled:
+                            type: boolean
+                          domain:
+                            type: string
+                          kmsKeyId:
+                            type: string
+                          region:
+                            type: string
+                        required:
+                        - credentials
+                        - kmsKeyId
+                        type: object
+                      awsKms:
+                        properties:
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          disabled:
+                            type: boolean
+                          endpoint:
+                            type: string
+                          kmsKeyId:
+                            type: string
+                          region:
+                            type: string
+                        required:
+                        - credentials
+                        - kmsKeyId
+                        type: object
+                      azureKeyVault:
+                        properties:
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          disabled:
+                            type: boolean
+                          environment:
+                            type: string
+                          keyName:
+                            type: string
+                          resource:
+                            type: string
+                          vaultName:
+                            type: string
+                        required:
+                        - credentials
+                        - keyName
+                        - vaultName
+                        type: object
+                      gcpKms:
+                        properties:
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          cryptoKey:
+                            type: string
+                          disabled:
+                            type: boolean
+                          keyRing:
+                            type: string
+                          project:
+                            type: string
+                          region:
+                            type: string
+                        required:
+                        - credentials
+                        - cryptoKey
+                        - keyRing
+                        - project
+                        - region
+                        type: object
+                      ociKms:
+                        properties:
+                          authTypeApiKey:
+                            type: boolean
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          disabled:
+                            type: boolean
+                        required:
+                        - credentials
+                        type: object
+                      pkcs11:
+                        properties:
+                          defaultHmacKeyLabel:
+                            type: string
+                          defaultKeyLabel:
+                            type: string
+                          disabled:
+                            type: boolean
+                          forceRwSession:
+                            type: boolean
+                          generateKey:
+                            type: boolean
+                          hmacKeyId:
+                            type: string
+                          hmacKeyLabel:
+                            type: string
+                          hmacMechanism:
+                            enum:
+                            - "0x0251"
+                            type: string
+                          keyId:
+                            type: string
+                          keyLabel:
+                            type: string
+                          lib:
+                            properties:
+                              configMapRef:
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - configMapRef
+                            type: object
+                          maxParallel:
+                            format: int32
+                            type: integer
+                          mechanism:
+                            enum:
+                            - "0x1085"
+                            - "0x1082"
+                            - "0x1087"
+                            - "0x0009"
+                            - "0x0001"
+                            type: string
+                          pin:
+                            properties:
+                              secretKeyRef:
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - secretKeyRef
+                            type: object
+                          rsaEncryptLocal:
+                            type: boolean
+                          rsaOaepHash:
+                            enum:
+                            - sha1
+                            - sha256
+                            - sha224
+                            - sha384
+                            - sha512
+                            type: string
+                          slot:
+                            type: string
+                          tokenLabel:
+                            type: string
+                        required:
+                        - hmacKeyLabel
+                        - keyId
+                        - keyLabel
+                        - lib
+                        - pin
+                        - slot
+                        - tokenLabel
+                        type: object
+                      transit:
+                        properties:
+                          Address:
+                            type: string
+                          DisableRenewal:
+                            type: string
+                          KeyIdPrefix:
+                            type: string
+                          KeyName:
+                            type: string
+                          MountPath:
+                            type: string
+                          Namespace:
+                            type: string
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          disabled:
+                            type: boolean
+                          tls:
+                            properties:
+                              caCert:
+                                properties:
+                                  configMapRef:
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    type: object
+                                required:
+                                - configMapRef
+                                type: object
+                              clientCert:
+                                properties:
+                                  secretRef:
+                                    properties:
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                required:
+                                - secretRef
+                                type: object
+                              serverName:
+                                type: string
+                              skipVerify:
+                                type: boolean
+                            required:
+                            - clientCert
+                            - serverName
+                            type: object
+                        required:
+                        - Address
+                        - KeyName
+                        - MountPath
+                        - credentials
+                        type: object
+                    type: object
+                  sentinel:
+                    properties:
+                      additionalEnabledModules:
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  serviceRegistration:
+                    properties:
+                      consul:
+                        properties:
+                          address:
+                            type: string
+                          checkTimeout:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                          clientCert:
+                            properties:
+                              secretKeyRef:
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - secretKeyRef
+                            type: object
+                          disableRegistration:
+                            type: boolean
+                          scheme:
+                            enum:
+                            - http
+                            - https
+                            type: string
+                          service:
+                            type: string
+                          serviceAddress:
+                            type: string
+                          serviceMeta:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          serviceTags:
+                            items:
+                              type: string
+                            type: array
+                          tls:
+                            properties:
+                              caCert:
+                                properties:
+                                  configMapRef:
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    type: object
+                                required:
+                                - configMapRef
+                                type: object
+                              clientCert:
+                                properties:
+                                  secretRef:
+                                    properties:
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                required:
+                                - secretRef
+                                type: object
+                              minVersion:
+                                enum:
+                                - tls10
+                                - tls11
+                                - tls12
+                                - tls13
+                                type: string
+                              skipVerify:
+                                type: boolean
+                            required:
+                            - clientCert
+                            type: object
+                        required:
+                        - clientCert
+                        type: object
+                      kubernetes:
+                        properties:
+                          namesspace:
+                            type: string
+                          podname:
+                            type: string
+                        type: object
+                    required:
+                    - consul
+                    - kubernetes
+                    type: object
+                  storage:
+                    properties:
+                      aerospike:
+                        properties:
+                          authMode:
+                            enum:
+                            - INTERNAL
+                            - EXTERNAL
+                            type: string
+                          clusterName:
+                            type: string
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          hostList:
+                            items:
+                              type: string
+                            type: array
+                          hostname:
+                            type: string
+                          idleTImeout:
+                            format: int32
+                            type: integer
+                          namespace:
+                            type: string
+                          port:
+                            format: int32
+                            type: integer
+                          set:
+                            type: string
+                          timeout:
+                            format: int32
+                            type: integer
+                        type: object
+                      alicloudOss:
+                        properties:
+                          bucket:
+                            type: string
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          endpoint:
+                            type: string
+                          maxParallel:
+                            format: int32
+                            type: integer
+                        type: object
+                      azure:
+                        properties:
+                          accountName:
+                            type: string
+                          armEndpoint:
+                            type: string
+                          container:
+                            type: string
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          environment:
+                            type: string
+                          maxParallel:
+                            format: int32
+                            type: integer
+                        type: object
+                      cassandra:
+                        properties:
+                          accountName:
+                            type: string
+                          armEndpoint:
+                            type: string
+                          container:
+                            type: string
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          environment:
+                            type: string
+                          maxParallel:
+                            format: int32
+                            type: integer
+                        type: object
+                      cockroachDb:
+                        properties:
+                          connectionUrl:
+                            properties:
+                              secretKeyRef:
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - secretKeyRef
+                            type: object
+                          haEnabled:
+                            type: boolean
+                          haTable:
+                            type: string
+                          maxParallel:
+                            format: int32
+                            type: integer
+                          table:
+                            type: string
+                        required:
+                        - connectionUrl
+                        type: object
+                      consul:
+                        properties:
+                          address:
+                            type: string
+                          checkTimeout:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                          clientCert:
+                            properties:
+                              secretKeyRef:
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - secretKeyRef
+                            type: object
+                          consistencyMode:
+                            enum:
+                            - default
+                            - strong
+                            type: string
+                          disableRegistration:
+                            type: boolean
+                          lockWaitTime:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                          maxParallel:
+                            format: int32
+                            type: integer
+                          path:
+                            type: string
+                          scheme:
+                            enum:
+                            - http
+                            - https
+                            type: string
+                          service:
+                            type: string
+                          serviceAddress:
+                            type: string
+                          serviceMeta:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          serviceTags:
+                            items:
+                              type: string
+                            type: array
+                          sessionTtl:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                          tls:
+                            properties:
+                              caCert:
+                                properties:
+                                  configMapRef:
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    type: object
+                                required:
+                                - configMapRef
+                                type: object
+                              clientCert:
+                                properties:
+                                  secretRef:
+                                    properties:
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                required:
+                                - secretRef
+                                type: object
+                              minVersion:
+                                enum:
+                                - tls10
+                                - tls11
+                                - tls12
+                                - tls13
+                                type: string
+                              skipVerify:
+                                type: boolean
+                            required:
+                            - clientCert
+                            type: object
+                        required:
+                        - clientCert
+                        type: object
+                      couchDb:
+                        properties:
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          endpoint:
+                            type: string
+                          maxParallel:
+                            format: int32
+                            type: integer
+                        required:
+                        - credentials
+                        - endpoint
+                        type: object
+                      dynamoDb:
+                        properties:
+                          billingMode:
+                            enum:
+                            - PROVISIONED
+                            - PAY_PER_REQUEST
+                            type: string
+                          capacity:
+                            properties:
+                              read:
+                                format: int32
+                                type: integer
+                              write:
+                                format: int32
+                                type: integer
+                            type: object
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          dynamodbAllowUpdates:
+                            type: string
+                          endpoint:
+                            type: string
+                          haEnabled:
+                            type: boolean
+                          maxParallel:
+                            format: int32
+                            type: integer
+                          region:
+                            format: int32
+                            type: integer
+                          table:
+                            type: string
+                        type: object
+                      etcd:
+                        properties:
+                          address:
+                            type: string
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          discoverySrv:
+                            type: string
+                          discoverySrvName:
+                            type: string
+                          etcdApi:
+                            type: string
+                          haEnabled:
+                            type: boolean
+                          max:
+                            properties:
+                              receiveSize:
+                                format: int32
+                                type: integer
+                              sendSize:
+                                format: int32
+                                type: integer
+                            type: object
+                          path:
+                            type: string
+                          sync:
+                            type: boolean
+                          timeout:
+                            properties:
+                              lock:
+                                description: |-
+                                  A Duration represents the elapsed time between two instants
+                                  as an int64 nanosecond count. The representation limits the
+                                  largest representable duration to approximately 290 years.
+                                format: int64
+                                type: integer
+                              request:
+                                description: |-
+                                  A Duration represents the elapsed time between two instants
+                                  as an int64 nanosecond count. The representation limits the
+                                  largest representable duration to approximately 290 years.
+                                format: int64
+                                type: integer
+                            type: object
+                          tls:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                        type: object
+                      fileSystem:
+                        type: object
+                      foundationDb:
+                        properties:
+                          apiVersion:
+                            format: int32
+                            type: integer
+                          clusterFile:
+                            properties:
+                              configMapRef:
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - configMapRef
+                            type: object
+                          haEnabled:
+                            type: boolean
+                          path:
+                            type: string
+                          tls:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                        type: object
+                      googleCloudSpanner:
+                        properties:
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          database:
+                            type: string
+                          haEnabled:
+                            type: boolean
+                          maxParallel:
+                            format: int32
+                            type: integer
+                          table:
+                            type: string
+                        type: object
+                      googleCloudStorage:
+                        properties:
+                          bucket:
+                            type: string
+                          chunkSize:
+                            format: int32
+                            type: integer
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          maxParallel:
+                            format: int32
+                            type: integer
+                        type: object
+                      inMem:
+                        type: object
+                      manta:
+                        properties:
+                          directory:
+                            type: string
+                          keyId:
+                            type: string
+                          subUser:
+                            type: string
+                          url:
+                            type: string
+                          user:
+                            type: string
+                        required:
+                        - directory
+                        - keyId
+                        - subUser
+                        - url
+                        - user
+                        type: object
+                      msSql:
+                        properties:
+                          appName:
+                            type: string
+                          connectionTimeout:
+                            format: int32
+                            type: integer
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          database:
+                            type: string
+                          logLevel:
+                            format: int32
+                            maximum: 63
+                            minimum: 0
+                            type: integer
+                          maxParallel:
+                            format: int32
+                            type: integer
+                          port:
+                            format: int32
+                            type: integer
+                          schema:
+                            type: string
+                          server:
+                            type: string
+                          table:
+                            type: string
+                        required:
+                        - server
+                        type: object
+                      mySql:
+                        properties:
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          database:
+                            type: string
+                          haEnabled:
+                            type: boolean
+                          lockTable:
+                            type: string
+                          maxConnectionLifetime:
+                            format: int32
+                            type: integer
+                          maxIdleConnections:
+                            format: int32
+                            type: integer
+                          maxParallel:
+                            format: int32
+                            type: integer
+                          plaintextConnectionAllowed:
+                            type: string
+                          schema:
+                            type: string
+                          server:
+                            format: int32
+                            type: integer
+                          table:
+                            type: string
+                          tlsCa:
+                            properties:
+                              configMapRef:
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - configMapRef
+                            type: object
+                        required:
+                        - server
+                        type: object
+                      ociObjectStorage:
+                        properties:
+                          bucketName:
+                            type: string
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          haEnabled:
+                            type: boolean
+                          lockBucketName:
+                            type: string
+                          namespaceName:
+                            type: string
+                          region:
+                            type: string
+                        required:
+                        - bucketName
+                        - haEnabled
+                        - lockBucketName
+                        - namespaceName
+                        type: object
+                      postgreSql:
+                        properties:
+                          authMode:
+                            properties:
+                              aws:
+                                properties:
+                                  awsDbRegion:
+                                    type: string
+                                type: object
+                              azure:
+                                properties:
+                                  awsDbRegion:
+                                    type: string
+                                type: object
+                              gcp:
+                                type: object
+                            type: object
+                          connectionUrl:
+                            properties:
+                              secretKeyRef:
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - secretKeyRef
+                            type: object
+                          haEnabled:
+                            type: boolean
+                          haTable:
+                            type: string
+                          maxIdleConnections:
+                            format: int32
+                            type: integer
+                          maxParallel:
+                            format: int32
+                            type: integer
+                          table:
+                            type: string
+                        type: object
+                      raft:
+                        properties:
+                          NodeId:
+                            type: string
+                          autopilotReconcileInterval:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                          autopilotRedundancyZone:
+                            type: string
+                          autopilotUpdateInterval:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                          autopilotUpgradeVersion:
+                            type: string
+                          maxEntrySize:
+                            format: int32
+                            type: integer
+                          maxMountAndNamespaceTableEntrySize:
+                            format: int32
+                            type: integer
+                          performanceMultiplier:
+                            format: int32
+                            type: integer
+                          retryJoin:
+                            items:
+                              properties:
+                                autoJoin:
+                                  type: string
+                                autoJoinPort:
+                                  format: int32
+                                  type: integer
+                                autoJoinScheme:
+                                  enum:
+                                  - http
+                                  - https
+                                  type: string
+                                leaderApiAddr:
+                                  type: string
+                                leaderTls:
+                                  properties:
+                                    secretRef:
+                                      properties:
+                                        name:
+                                          type: string
+                                        namespace:
+                                          type: string
+                                      required:
+                                      - name
+                                      type: object
+                                  required:
+                                  - secretRef
+                                  type: object
+                                leaderTlsServername:
+                                  type: string
+                              type: object
+                            type: array
+                          retryJoinAsNonVoter:
+                            type: boolean
+                          snapshotInterval:
+                            format: int32
+                            type: integer
+                          snapshotThreshold:
+                            format: int32
+                            type: integer
+                          trailingLogs:
+                            format: int32
+                            type: integer
+                        type: object
+                      s3:
+                        properties:
+                          bucket:
+                            type: string
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          disableSsl:
+                            type: boolean
+                          endpoint:
+                            type: string
+                          kmsKeyId:
+                            type: string
+                          maxParallel:
+                            format: int32
+                            type: integer
+                          path:
+                            type: string
+                          s3ForcePathStyle:
+                            type: boolean
+                        type: object
+                      swift:
+                        properties:
+                          container:
+                            type: string
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          domainName:
+                            properties:
+                              project:
+                                type: string
+                              user:
+                                type: string
+                            type: object
+                          maxParallel:
+                            format: int32
+                            type: integer
+                          region:
+                            type: string
+                          storageUrl:
+                            type: boolean
+                          tenant:
+                            properties:
+                              id:
+                                type: string
+                              name:
+                                type: string
+                            type: object
+                          trustId:
+                            type: string
+                        type: object
+                      zooKeeper:
+                        properties:
+                          address:
+                            type: string
+                          authInfo:
+                            properties:
+                              secretKeyRef:
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                            required:
+                            - secretKeyRef
+                            type: object
+                          path:
+                            type: string
+                          tls:
+                            properties:
+                              certificate:
+                                properties:
+                                  secretRef:
+                                    properties:
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                required:
+                                - secretRef
+                                type: object
+                              enabled:
+                                type: boolean
+                              minVersion:
+                                enum:
+                                - tls10
+                                - tls11
+                                - tls12
+                                - tls13
+                                type: string
+                              skipVerify:
+                                type: boolean
+                              verifyIp:
+                                type: boolean
+                            type: object
+                          znodeOwner:
+                            type: string
+                        type: object
+                    type: object
+                  telemetry:
+                    properties:
+                      add_lease_metrics_namespace_label:
+                        type: boolean
+                      add_mount_point_rollback_metrics:
+                        type: boolean
+                      circonus:
+                        properties:
+                          apiUrl:
+                            type: string
+                          brokerId:
+                            type: string
+                          brokerSelectTag:
+                            type: string
+                          checkDisplayName:
+                            type: string
+                          checkForceMetricActivation:
+                            type: string
+                          checkId:
+                            type: string
+                          checkInstanceId:
+                            type: string
+                          checkSearchTag:
+                            type: string
+                          checkTags:
+                            type: string
+                          credentials:
+                            properties:
+                              secretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - secretRef
+                            type: object
+                          submissionInterval:
+                            type: string
+                          submissionUrl:
+                            type: string
+                        required:
+                        - apiUrl
+                        - brokerId
+                        - brokerSelectTag
+                        - checkDisplayName
+                        - checkForceMetricActivation
+                        - checkId
+                        - checkInstanceId
+                        - checkSearchTag
+                        - checkTags
+                        - credentials
+                        - submissionInterval
+                        - submissionUrl
+                        type: object
+                      disableHostname:
+                        type: boolean
+                      dogStatsD:
+                        properties:
+                          addr:
+                            type: string
+                          tags:
+                            items:
+                              type: string
+                            type: array
+                        type: object
+                      enable_hostname_label:
+                        type: boolean
+                      filter_default:
+                        type: boolean
+                      lease_metrics_epsilon:
+                        description: |-
+                          A Duration represents the elapsed time between two instants
+                          as an int64 nanosecond count. The representation limits the
+                          largest representable duration to approximately 290 years.
+                        format: int64
+                        type: integer
+                      maximum_gauge_cardinality:
+                        type: integer
+                      metrics_prefix:
+                        type: string
+                      num_lease_metrics_buckets:
+                        type: integer
+                      prefix_filter:
+                        items:
+                          type: string
+                        type: array
+                      prometheus:
+                        properties:
+                          retentionTime:
+                            description: |-
+                              A Duration represents the elapsed time between two instants
+                              as an int64 nanosecond count. The representation limits the
+                              largest representable duration to approximately 290 years.
+                            format: int64
+                            type: integer
+                        type: object
+                      stackDriver:
+                        properties:
+                          debugLogs:
+                            type: boolean
+                          location:
+                            type: string
+                          namespace:
+                            type: string
+                          projectId:
+                            type: string
+                        type: object
+                      statsd:
+                        properties:
+                          address:
+                            type: string
+                        type: object
+                      statsite:
+                        properties:
+                          address:
+                            type: string
+                        type: object
+                      usage_gauge_period:
+                        description: |-
+                          A Duration represents the elapsed time between two instants
+                          as an int64 nanosecond count. The representation limits the
+                          largest representable duration to approximately 290 years.
+                        format: int64
+                        type: integer
+                    type: object
+                  ui:
+                    description: User Managed Config
+                    type: boolean
+                  userLockout:
+                    items:
+                      properties:
+                        all:
+                          properties:
+                            counterReset:
+                              description: |-
+                                A Duration represents the elapsed time between two instants
+                                as an int64 nanosecond count. The representation limits the
+                                largest representable duration to approximately 290 years.
+                              format: int64
+                              type: integer
+                            disableLockout:
+                              type: boolean
+                            duration:
+                              description: |-
+                                A Duration represents the elapsed time between two instants
+                                as an int64 nanosecond count. The representation limits the
+                                largest representable duration to approximately 290 years.
+                              format: int64
+                              type: integer
+                            threshold:
+                              format: int32
+                              type: integer
+                          type: object
+                        appRole:
+                          properties:
+                            counterReset:
+                              description: |-
+                                A Duration represents the elapsed time between two instants
+                                as an int64 nanosecond count. The representation limits the
+                                largest representable duration to approximately 290 years.
+                              format: int64
+                              type: integer
+                            disableLockout:
+                              type: boolean
+                            duration:
+                              description: |-
+                                A Duration represents the elapsed time between two instants
+                                as an int64 nanosecond count. The representation limits the
+                                largest representable duration to approximately 290 years.
+                              format: int64
+                              type: integer
+                            threshold:
+                              format: int32
+                              type: integer
+                          type: object
+                        ldap:
+                          properties:
+                            counterReset:
+                              description: |-
+                                A Duration represents the elapsed time between two instants
+                                as an int64 nanosecond count. The representation limits the
+                                largest representable duration to approximately 290 years.
+                              format: int64
+                              type: integer
+                            disableLockout:
+                              type: boolean
+                            duration:
+                              description: |-
+                                A Duration represents the elapsed time between two instants
+                                as an int64 nanosecond count. The representation limits the
+                                largest representable duration to approximately 290 years.
+                              format: int64
+                              type: integer
+                            threshold:
+                              format: int32
+                              type: integer
+                          type: object
+                        userpass:
+                          properties:
+                            counterReset:
+                              description: |-
+                                A Duration represents the elapsed time between two instants
+                                as an int64 nanosecond count. The representation limits the
+                                largest representable duration to approximately 290 years.
+                              format: int64
+                              type: integer
+                            disableLockout:
+                              type: boolean
+                            duration:
+                              description: |-
+                                A Duration represents the elapsed time between two instants
+                                as an int64 nanosecond count. The representation limits the
+                                largest representable duration to approximately 290 years.
+                              format: int64
+                              type: integer
+                            threshold:
+                              format: int32
+                              type: integer
+                          type: object
+                      type: object
+                    type: array
+                type: object
+              image:
+                type: string
+              labels:
+                additionalProperties:
+                  type: string
+                type: object
+              size:
+                format: int32
+                type: integer
+            required:
+            - config
+            - image
+            - size
+            type: object
+          status:
+            description: VaultServerStatus defines the observed state of VaultServer.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              metadata:
+                description: |-
+                  INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+                  Important: Run "make" to regenerate code after modifying this file
+                properties:
+                  continue:
+                    description: |-
+                      continue may be set if the user set a limit on the number of items returned, and indicates that
+                      the server has more data available. The value is opaque and may be used to issue another request
+                      to the endpoint that served this list to retrieve the next set of available objects. Continuing a
+                      consistent list may not be possible if the server configuration has changed or more than a few
+                      minutes have passed. The resourceVersion field returned when using this continue value will be
+                      identical to the value in the first response, unless you have received this token from an error
+                      message.
+                    type: string
+                  remainingItemCount:
+                    description: |-
+                      remainingItemCount is the number of subsequent items in the list which are not included in this
+                      list response. If the list request contained label or field selectors, then the number of
+                      remaining items is unknown and the field will be left unset and omitted during serialization.
+                      If the list is complete (either because it is not chunking or because this is the last chunk),
+                      then there are no more remaining items and this field will be left unset and omitted during
+                      serialization.
+                      Servers older than v1.15 do not set this field.
+                      The intended use of the remainingItemCount is *estimating* the size of a collection. Clients
+                      should not rely on the remainingItemCount to be set or to be exact.
+                    format: int64
+                    type: integer
+                  resourceVersion:
+                    description: |-
+                      String that identifies the server's internal version of this object that
+                      can be used by clients to determine when objects have changed.
+                      Value must be treated as opaque by clients and passed unmodified back to the server.
+                      Populated by the system.
+                      Read-only.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                    type: string
+                  selfLink:
+                    description: 'Deprecated: selfLink is a legacy read-only field
+                      that is no longer populated by the system.'
+                    type: string
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
