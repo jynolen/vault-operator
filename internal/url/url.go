@@ -38,6 +38,31 @@ func (u *URL) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+func (u *URL) MarshalHCL() ([]byte, error) {
+	return []byte(fmt.Sprintf("%q", u.String())), nil
+}
+
+func (u *URL) UnMarshalHCL(b []byte) error {
+	var ref string
+	if err := json.Unmarshal(b, &ref); err != nil {
+		return err
+	}
+	if ref == "" {
+		*u = URL{}
+		return nil
+	}
+
+	r, err := url.Parse(ref)
+	if err != nil {
+		return err
+	} else if r != nil {
+		*u = URL{*r}
+	} else {
+		*u = URL{}
+	}
+	return nil
+}
+
 func (u *URL) String() string {
 	if u == nil {
 		return ""

@@ -1,28 +1,18 @@
-/*
-Copyright 2025.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controller
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
+	"maps"
 	"strconv"
-	"time"
+	"text/template"
 
+	"github.com/Masterminds/sprig/v3"
 	"github.com/jynolen/vault-operator/api/v1alpha1"
+	"github.com/jynolen/vault-operator/internal/utils"
+	"github.com/zeebo/xxh3"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,6 +37,11 @@ const (
 
 	vaultOperatorFinalizer = "vault-operator.io/finalizer"
 )
+
+//go:embed template/config.gotpl
+var vaultConfigTemplateStr string
+
+var VaultConfigTemplate *template.Template = template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Parse(vaultConfigTemplateStr))
 
 // VaultServerReconciler reconciles a VaultServer object
 type VaultServerReconciler struct {
@@ -122,12 +117,12 @@ func (r *VaultServerReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	// Check if the Memcached instance is marked to be deleted, which is
+	// Check if the VaultServer instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set.
-	isMemcachedMarkedToBeDeleted := vaultServer.GetDeletionTimestamp() != nil
-	if isMemcachedMarkedToBeDeleted {
+	isVaultServerMarkedToBeDeleted := vaultServer.GetDeletionTimestamp() != nil
+	if isVaultServerMarkedToBeDeleted {
 		if controllerutil.ContainsFinalizer(vaultServer, vaultOperatorFinalizer) {
-			log.Info("Performing Finalizer Operations for Memcached before delete CR")
+			log.Info("Performing Finalizer Operations for VaultServer before delete CR")
 
 			// Let's add here a status "Downgrade" to reflect that this resource began its process to be terminated.
 			meta.SetStatusCondition(&vaultServer.Status.Conditions, metav1.Condition{Type: typeDegradedVaultServer,
@@ -135,13 +130,13 @@ func (r *VaultServerReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				Message: fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", vaultServer.Name)})
 
 			if err := r.Status().Update(ctx, vaultServer); err != nil {
-				log.Error(err, "Failed to update Memcached status")
+				log.Error(err, "Failed to update VaultServer status")
 				return ctrl.Result{}, err
 			}
 
 			// Perform all operations required before removing the finalizer and allow
 			// the Kubernetes API to remove the custom resource.
-			r.doFinalizerOperationsForMemcached(vaultServer)
+			r.doFinalizerOperationsForVaultserver(vaultServer)
 
 			// TODO(user): If you add operations to the doFinalizerOperationsForMemcached method
 			// then you need to ensure that all worked fine before deleting and updating the Downgrade status
@@ -161,118 +156,132 @@ func (r *VaultServerReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				Message: fmt.Sprintf("Finalizer operations for custom resource %s name were successfully accomplished", vaultServer.Name)})
 
 			if err := r.Status().Update(ctx, vaultServer); err != nil {
-				log.Error(err, "Failed to update Memcached status")
+				log.Error(err, "Failed to update VaultServer status")
 				return ctrl.Result{}, err
 			}
 
-			log.Info("Removing Finalizer for Memcached after successfully perform the operations")
+			log.Info("Removing Finalizer for VaultServer after successfully perform the operations")
 			if ok := controllerutil.RemoveFinalizer(vaultServer, typeDegradedVaultServer); !ok {
-				err = fmt.Errorf("finalizer for Memcached was not removed")
-				log.Error(err, "Failed to remove finalizer for Memcached")
+				err = fmt.Errorf("finalizer for VaultServer was not removed")
+				log.Error(err, "Failed to remove finalizer for VaultServer")
 				return ctrl.Result{}, err
 			}
 
 			if err := r.Update(ctx, vaultServer); err != nil {
-				log.Error(err, "Failed to remove finalizer for Memcached")
+				log.Error(err, "Failed to remove finalizer for VaultServer")
 				return ctrl.Result{}, err
 			}
 		}
 		return ctrl.Result{}, nil
 	}
 
-	// Check if the deployment already exists, if not create a new one
-	found := &appsv1.StatefulSet{}
-	err = r.Get(ctx, types.NamespacedName{Name: vaultServer.Name, Namespace: vaultServer.Namespace}, found)
-	if err != nil && apierrors.IsNotFound(err) {
-		// Define a new deployment
-		dep, err := r.statefulSetForVaultServer(vaultServer)
-		if err != nil {
-			log.Error(err, "Failed to define new Deployment resource for Memcached")
-
-			// The following implementation will update the status
-			meta.SetStatusCondition(&vaultServer.Status.Conditions, metav1.Condition{Type: typeAvailableVaultServer,
-				Status: metav1.ConditionFalse, Reason: "Reconciling",
-				Message: fmt.Sprintf("Failed to create Deployment for the custom resource (%s): (%s)", vaultServer.Name, err)})
-
-			if err := r.Status().Update(ctx, vaultServer); err != nil {
-				log.Error(err, "Failed to update Memcached status")
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, err
-		}
-
-		log.Info("Creating a new Deployment",
-			"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
-		if err = r.Create(ctx, dep); err != nil {
-			log.Error(err, "Failed to create new Deployment",
-				"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
-			return ctrl.Result{}, err
-		}
-
-		// Deployment created successfully
-		// We will requeue the reconciliation so that we can ensure the state
-		// and move forward for the next operations
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
-	} else if err != nil {
-		log.Error(err, "Failed to get Deployment")
-		// Let's return the error for the reconciliation be re-triggered again
+	// Check if the configMap already exists, if not create a new one
+	if err = r.reconcileConfigMap(ctx, vaultServer); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// The CRD API defines that the Memcached type have a MemcachedSpec.Size field
-	// to set the quantity of Deployment instances to the desired state on the cluster.
-	// Therefore, the following code will ensure the Deployment size is the same as defined
-	// via the Size spec of the Custom Resource which we are reconciling.
-	size := vaultServer.Spec.Size
-	if *found.Spec.Replicas != size {
-		found.Spec.Replicas = &size
-		if err = r.Update(ctx, found); err != nil {
-			log.Error(err, "Failed to update Deployment",
-				"Deployment.Namespace", found.Namespace, "Deployment.Name", found.Name)
+	if err = r.reconcileSecret(ctx, vaultServer); err != nil {
+		return ctrl.Result{}, err
+	}
 
-			// Re-fetch the vaultServer Custom Resource before updating the status
-			// so that we have the latest state of the resource on the cluster and we will avoid
-			// raising the error "the object has been modified, please apply
-			// your changes to the latest version and try again" which would re-trigger the reconciliation
-			if err := r.Get(ctx, req.NamespacedName, vaultServer); err != nil {
-				log.Error(err, "Failed to re-fetch vaultServer")
-				return ctrl.Result{}, err
-			}
+	if err = r.reconcileStatefulSet(ctx, vaultServer); err != nil {
+		return ctrl.Result{}, err
+	}
 
-			// The following implementation will update the status
-			meta.SetStatusCondition(&vaultServer.Status.Conditions, metav1.Condition{Type: typeAvailableVaultServer,
-				Status: metav1.ConditionFalse, Reason: "Resizing",
-				Message: fmt.Sprintf("Failed to update the size for the custom resource (%s): (%s)", vaultServer.Name, err)})
-
-			if err := r.Status().Update(ctx, vaultServer); err != nil {
-				log.Error(err, "Failed to update Memcached status")
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, err
-		}
-
-		// Now, that we update the size we want to requeue the reconciliation
-		// so that we can ensure that we have the latest state of the resource before
-		// update. Also, it will help ensure the desired state on the cluster
-		return ctrl.Result{Requeue: true}, nil
+	if err = r.reconcileService(ctx, vaultServer); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// The following implementation will update the status
 	meta.SetStatusCondition(&vaultServer.Status.Conditions, metav1.Condition{Type: typeAvailableVaultServer,
 		Status: metav1.ConditionTrue, Reason: "Reconciling",
-		Message: fmt.Sprintf("Deployment for custom resource (%s) with %d replicas created successfully", vaultServer.Name, size)})
+		Message: fmt.Sprintf("Resources for custom resource (%s) created successfully", vaultServer.Name)})
 
 	if err := r.Status().Update(ctx, vaultServer); err != nil {
-		log.Error(err, "Failed to update Memcached status")
+		log.Error(err, "Failed to update VaultServer status")
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
 }
 
+func (r *VaultServerReconciler) reconcileService(ctx context.Context, vaultServer *v1alpha1.VaultServer) error {
+	return nil
+}
+
+func (r *VaultServerReconciler) reconcileStatefulSet(ctx context.Context, vaultServer *v1alpha1.VaultServer) error {
+	return nil
+}
+
+func (r *VaultServerReconciler) reconcileConfigMap(ctx context.Context, vaultServer *v1alpha1.VaultServer) error {
+	log := logf.FromContext(ctx, "ConfigMap.Namespace", vaultServer.GetNamespace(), "ConfigMap.Name", vaultServer.GetConfigMapNameForVaultConfig())
+	cm, err := r.configMapForVaultServer(vaultServer)
+	if err != nil {
+		log.Error(err, "Failed to template vault config, template error")
+		return err
+	}
+
+	found := &corev1.ConfigMap{}
+	err = r.Get(ctx, types.NamespacedName{Name: vaultServer.Name, Namespace: vaultServer.Namespace}, found)
+	if err != nil && apierrors.IsNotFound(err) {
+		log.Info("Creating a new ConfigMap")
+		if err = r.Create(ctx, cm); err != nil {
+			log.Error(err, "Failed to create new configMap")
+			return err
+		}
+		return nil
+	}
+	if found.Annotations[configChecksumAnnotationName(vaultServer.TypeMeta)] != cm.Annotations[configChecksumAnnotationName(vaultServer.TypeMeta)] {
+		log.Info("Generated Vault-Config file diverge, updating the ConfigMap")
+		if err = r.Update(ctx, cm); err != nil {
+			log.Error(err, "Failed to create new configMap")
+			return err
+		}
+		return nil
+	}
+	return nil
+}
+
+func configChecksumAnnotationName(obj metav1.TypeMeta) string {
+	return fmt.Sprintf("%s/vault-config-checksum", utils.GetFullCrdFQDN(&obj))
+}
+
+func (r *VaultServerReconciler) configMapForVaultServer(vaultServer *v1alpha1.VaultServer) (*corev1.ConfigMap, error) {
+	var buf bytes.Buffer
+	cmData := make(map[string]string)
+	cmAnnotations := make(map[string]string)
+	if err := VaultConfigTemplate.Execute(&buf, vaultServer.Spec.Config); err != nil {
+		return nil, err
+	}
+
+	cmData["vault.hcl"] = buf.String()
+	if vaultServer.Spec.ConfigMapOverride != nil {
+		maps.Copy(cmData, vaultServer.Spec.ConfigMapOverride.Data)
+	}
+	cmAnnotations[configChecksumAnnotationName(vaultServer.TypeMeta)] = fmt.Sprintf("0x%x", xxh3.HashString(cmData["vault.hcl"]))
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        vaultServer.GetConfigMapNameForVaultConfig(),
+			Namespace:   vaultServer.GetNamespace(),
+			Labels:      vaultServer.GetLabels(),
+			Annotations: cmAnnotations,
+		},
+		Data: cmData,
+	}
+
+	// Set the ownerRef for the Deployment
+	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/
+	if err := ctrl.SetControllerReference(vaultServer, cm, r.Scheme); err != nil {
+		return nil, err
+	}
+	return cm, nil
+}
+
+func (r *VaultServerReconciler) reconcileSecret(ctx context.Context, vaultServer *v1alpha1.VaultServer) error {
+	return nil
+}
+
 // finalizeMemcached will perform the required operations before delete the CR.
-func (r *VaultServerReconciler) doFinalizerOperationsForMemcached(cr *v1alpha1.VaultServer) {
+func (r *VaultServerReconciler) doFinalizerOperationsForVaultserver(cr *v1alpha1.VaultServer) {
 	// TODO(user): Add the cleanup steps that the operator
 	// needs to do before the CR can be deleted. Examples
 	// of finalizers include performing backups and deleting
@@ -291,7 +300,7 @@ func (r *VaultServerReconciler) doFinalizerOperationsForMemcached(cr *v1alpha1.V
 			cr.Namespace))
 }
 
-// statefulSetForVaultServer returns a Memcached Deployment object
+// statefulSetForVaultServer returns a VaultServer Deployment object
 func (r *VaultServerReconciler) statefulSetForVaultServer(
 	vaultServer *v1alpha1.VaultServer) (*appsv1.StatefulSet, error) {
 	replicas := vaultServer.Spec.Size
