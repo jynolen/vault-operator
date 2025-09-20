@@ -28,5 +28,5 @@ go.work
 
 **/__debug*
 
-.task
+.task/checksum
 .bundle

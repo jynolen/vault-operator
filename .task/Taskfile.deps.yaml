@@ -1,0 +1,109 @@
+version: "3"
+
+vars:
+  LOCALBIN: '{{ printf "%s/bin" .USER_WORKING_DIR }}'
+  ENVTEST_VERSION:  '{{ .ENVTEST_VERSION | default "release-0.22" }}'
+  ENVTEST_K8S_VERSION: '{{ .ENVTEST_K8S_VERSION | default "1.33.0" }}'
+  GOLANGCI_LINT_VERSION: '{{ .GOLANGCI_LINT_VERSION | default "v2.4.0" }}'
+  CONTROLLER_TOOLS_VERSION: '{{ .CONTROLLER_TOOLS_VERSION | default "v0.18.0" }}'
+  KUSTOMIZE_VERSION: '{{ .KUSTOMIZE_VERSION | default "v5.6.0" }}'
+
+tasks:
+  default:
+    cmds:
+      - task: go-tools
+      
+  folder:
+    label: "Ensuring {{ .LOCALBIN }} exists"
+    cmd: mkdir -p {{ .LOCALBIN }}
+    internal: true
+    status:
+      - test -d {{ .LOCALBIN }}
+    generates:
+      - "{{ .LOCALBIN }}"
+
+  _internal:*:install:
+    label: "{{index .MATCH 0}}:install"
+    internal: true
+    deps:
+      - task: folder
+    vars:
+      GOPKG: "{{ .GOPKG | default (index .MATCH 0) }}"
+      package: "{{ .GOPKG_SRC }}@{{ .GOPKG_VERSION }}"
+    env:
+      GOBIN: "{{ .LOCALBIN }}"
+    cmds:
+      - echo Downloading {{ .package }}
+      - go install {{ .package }}
+    generates:
+      - "{{.GOPKG }}"
+    status:
+      - test -x {{ .LOCALBIN }}/{{.GOPKG }}
+
+  go:setup-envtest:install:
+    internal: true
+    vars:
+      GOPKG: "setup-envtest"
+      package: "sigs.k8s.io/controller-runtime/tools/setup-envtest@{{ .ENVTEST_VERSION }}"
+    env:
+      GOBIN: "{{ .LOCALBIN }}"
+    cmds:
+      - echo Downloading {{ .package }}
+      - go install "{{ .package}}"
+    generates:
+      - "{{ .LOCALBIN }}/setup-envtest"
+    status:
+      - test -x {{ .LOCALBIN }}/setup-envtest
+      
+  go:k8s:install:
+    internal: true
+    env:
+      GOBIN: "{{ .LOCALBIN }}"
+    cmds:
+      - task: go:setup-envtest:install
+      - go install "sigs.k8s.io/controller-runtime/tools/setup-envtest@{{ .ENVTEST_VERSION }}"
+      - "{{ .LOCALBIN }}/setup-envtest use {{ .ENVTEST_K8S_VERSION }} --bin-dir {{ .LOCALBIN }} > /dev/null"
+      - chmod 755 {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}
+      - ln -sf {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kubectl {{ .LOCALBIN }}/kubectl
+      - ln -sf {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/etcd {{ .LOCALBIN }}/etcd
+      - ln -sf {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kube-apiserver {{ .LOCALBIN }}/kube-apiserver
+    status:
+      - test -x {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/etcd
+      - test -x {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kube-apiserver
+      - test -x {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kubectl
+      - test -L {{ .LOCALBIN }}/etcd
+      - test -L {{ .LOCALBIN }}/kube-apiserver
+      - test -L {{ .LOCALBIN }}/kubectl
+
+  go:kustomize:install:
+    internal: true
+    cmds:
+      - task: _internal:kustomize:install
+        vars:
+          GOPKG_SRC: sigs.k8s.io/kustomize/kustomize/v5
+          GOPKG_VERSION: "{{ .KUSTOMIZE_VERSION }}"
+
+  go:golangci-lint:install:
+    internal: true
+    cmds:
+      - task: _internal:golangci-lint:install
+        vars:
+          GOPKG_SRC: github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+          GOPKG_VERSION: "{{ .GOLANGCI_LINT_VERSION }}"
+
+  go:controller-gen:install:
+    internal: true
+    cmds:
+      - task: _internal:controller-gen:install
+        vars:
+          GOPKG_SRC: sigs.k8s.io/controller-tools/cmd/controller-gen
+          GOPKG_VERSION: "{{ .CONTROLLER_TOOLS_VERSION }}"
+
+  go-tools:
+    internal: true
+    deps:
+      - task: folder
+      - task: go:k8s:install
+      - task: go:kustomize:install
+      - task: go:golangci-lint:install
+      - task: go:controller-gen:install

@@ -17,17 +17,25 @@ limitations under the License.
 package v1alpha1
 
 import (
-	k8s "k8s.io/api/core/v1"
+	"strconv"
 )
 
-// #region KmsLibrarySpec
 // Resource Specification Specific to KmsLibrary
 
 type KmsLibrarySpec struct {
 	// +kubebuilder:validation:Enum=pkcs11
-	Type    string                   `json:"type,omitempty"`
-	Name    string                   `json:"name,omitempty"`
-	Library k8s.ConfigMapKeySelector `json:"library,omitempty"`
+	Type    string  `json:"type,omitempty"`
+	Name    *string `json:"name,omitempty"`
+	Library *string `json:"library,omitempty"`
 }
 
-// #endregion
+func (k *KmsLibrarySpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if k.Name != nil {
+		_m["name"] = strconv.Quote(*k.Name)
+	}
+	if k.Library != nil {
+		_m["library"] = strconv.Quote(*k.Library)
+	}
+	return _m
+}

@@ -17,22 +17,50 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"time"
+	"fmt"
+	"strconv"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // #region ReportingSpec
 // Resource Specification Specific to Reporting
 
 type ReportingLicenseSpec struct {
-	Enabled               bool  `json:"enabled,omitempty"`
-	BillingStartTimestamp int32 `json:"billingStartTimestamp,omitempty"`
-	DevelopmentCluster    bool  `json:"developmentCluster,omitempty"`
+	Enabled               *bool  `json:"enabled,omitempty"`
+	BillingStartTimestamp *int32 `json:"billingStartTimestamp,omitempty"`
+	DevelopmentCluster    *bool  `json:"developmentCluster,omitempty"`
+}
+
+func (r *ReportingLicenseSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if r.DevelopmentCluster != nil {
+		_m["development_cluster"] = strconv.FormatBool(*r.DevelopmentCluster)
+	}
+	if r.Enabled != nil {
+		_m["enabled"] = strconv.FormatBool(*r.Enabled)
+	}
+	if r.BillingStartTimestamp != nil {
+		_m["billing_start_timestamp"] = strconv.FormatInt(int64(*r.BillingStartTimestamp), 10)
+	}
+	return _m
 }
 
 type ReportingSpec struct {
-	SnapshotRetentionTime        time.Duration         `json:"snapshotRetentionTime,omitempty"`
-	DisableProductUsageReporting bool                  `json:"disableProductUsageReporting,omitempty"`
+	SnapshotRetentionTime        *metav1.Duration      `json:"snapshotRetentionTime,omitempty"`
+	DisableProductUsageReporting *bool                 `json:"disableProductUsageReporting,omitempty"`
 	License                      *ReportingLicenseSpec `json:"license,omitempty"`
+}
+
+func (r *ReportingSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if r.SnapshotRetentionTime != nil {
+		_m["snapshot_retention_time"] = strconv.Quote(fmt.Sprintf("%s", r.SnapshotRetentionTime.Duration))
+	}
+	if r.DisableProductUsageReporting != nil {
+		_m["disable_product_usage_reporting"] = strconv.FormatBool(*r.DisableProductUsageReporting)
+	}
+	return _m
 }
 
 // #endregion

@@ -1,1 +1,155 @@
-ui = {{ .Ui }}
+{{ range $key,$val := .MapValue }}
+{{ $key }} = {{ $val }}
+{{ end}}
+
+{{ with .Storage.InternalStorage }}
+storage "{{ .Type }}" {
+    {{ range $key,$val := .MapValue }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+    {{ if eq .Type "raft" }}
+        {{ range .RetryJoin }}  
+    retry_join {
+            {{ range $key,$val := .MapValue }}
+        {{ $key }} = {{ $val }}
+            {{ end}}
+    }
+        {{ end}}
+    {{ end }}
+}
+{{ end }}
+
+{{ with .ListenerTcp }}
+listener "tcp" {
+    {{ range $key,$val := .MapValue }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+    {{ range $block,$blockVal := .Blocks }}
+    {{ $block }} {
+    {{ range $key,$val := $blockVal }}
+        {{ $key }} = {{ $val }}
+    {{ end}}
+    }
+    {{ end}}
+    {{ if .CustomResponseHeaders }}
+        {{ with .CustomResponseHeaders }}
+    custom_response_headers {
+            {{ range $code,$headers := . }}
+        "{{ $code }}" {
+                {{ range $key,$val := . }}
+            {{ $key | quote }} = [ {{ $val | mapquote | join ","  }} ]
+                {{ end}}
+        }
+            {{ end}}
+        {{ end}}
+    }
+    {{ end }}
+}
+{{ end }}
+
+{{ if .Telemetry }}
+    {{ with .Telemetry }}
+telemetry {
+    {{ range $key,$val := .MapValue }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+}
+    {{ end }}
+{{ end }}
+
+{{ if .UserLockout }}
+    {{ range $key,$val := .UserLockout.ListMapValue }}
+user_lockout "{{ $key }}"{
+    {{ range $k,$v := $val }}
+    {{ $k }} = {{ $v }}
+    {{ end}}
+}
+    {{ end }}
+{{ end }}
+
+{{ if gt (len .Seal) 1 }}
+enable_multiseal = true
+{{ end }}
+
+{{ if .Seal }}
+    {{ range $key, $object := .Seal.InternalSeal }}
+        {{ with $object }}
+seal "{{ .Type }}"{
+            {{ if gt (len .Seal) 1 }}
+    priority = $key
+            {{ end }}
+            {{ range $k,$v := .MapValue }}
+    {{ $k }} = {{ $v }}
+            {{ end}}
+}
+        {{ end }}
+    {{ end }}
+{{ end }}
+
+{{ if .ServiceRegistration }}
+    {{ range .ServiceRegistration.InternalServiceRegistration }}
+service_registration "{{ .Type }}"{
+        {{ range $k,$v := .MapValue }}
+    {{ $k }} = {{ $v }}
+        {{ end}}
+}
+    {{ end }}
+{{ end }}
+
+{{ if .KMSLibrary }}
+    {{ with .KMSLibrary }}
+kms_library "{{ .Type }}" {
+    {{ range $key,$val := .MapValue }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+}
+    {{ end }}
+{{ end }}
+
+{{ if .Replication }}
+    {{ with .Replication }}
+replication {
+    {{ range $key,$val := .MapValue }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+}
+    {{ end }}
+{{ end }}
+
+{{ if .Reporting }}
+    {{ with .Reporting }}
+reporting {
+    {{ range $key,$val := .MapValue }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+    {{ if .License }}
+    license {
+        {{ range $key,$val := .License.MapValue }}
+        {{ $key }} = {{ $val }}
+        {{ end}}
+    }
+    {{ end}}
+}
+    {{ end }}
+{{ end }}
+
+
+{{ if .Sentinel }}
+    {{ with .Sentinel }}
+sentinel {
+    {{ range $key,$val := .MapValue }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+}
+    {{ end }}
+{{ end }}
+
+{{ if .AdaptiveOverloadProtection }}
+    {{ with .Sentinel }}
+adaptive_overload_protection {
+    {{ range $key,$val := .AdaptiveOverloadProtection }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+}
+    {{ end }}
+{{ end }}

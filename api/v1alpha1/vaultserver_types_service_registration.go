@@ -16,18 +16,51 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	"reflect"
+	"strconv"
+)
+
 // #region ServiceRegistrationSpec
 // Resource Specification Specific to ServiceRegistration
 
 type ServiceRegistrationKubernetesSpec struct {
-	Nmaespace string `json:"namesspace,omitempty"`
-	PodName   string `json:"podname,omitempty"`
+	Namespace *string `json:"namespace,omitempty"`
+	PodName   *string `json:"podname,omitempty"`
+}
+
+func (s *ServiceRegistrationKubernetesSpec) Type() string {
+	return "kubernetes"
+}
+
+func (s *ServiceRegistrationKubernetesSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if s.Namespace != nil {
+		_m["namespace"] = strconv.Quote(*s.Namespace)
+	}
+	if s.PodName != nil {
+		_m["pod_name"] = strconv.Quote(*s.PodName)
+	}
+	return _m
 }
 
 // +kubebuilder:validation:MinProperties=1
 type ServiceRegistrationSpec struct {
 	Consul     *ConsulSpec                        `json:"consul"`
 	Kubernetes *ServiceRegistrationKubernetesSpec `json:"kubernetes"`
+}
+
+func (s *ServiceRegistrationSpec) InternalServiceRegistration() HclHelper {
+	v := reflect.ValueOf(*s)
+	t := reflect.TypeOf(*s)
+
+	for i := range t.NumField() {
+		intf := v.Field(i)
+		if !intf.IsNil() {
+			return intf.Interface().(HclHelper)
+		}
+	}
+	return nil
 }
 
 // #endregion

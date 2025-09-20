@@ -17,20 +17,48 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"time"
+	"fmt"
+	"strconv"
 
-	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"kythe.io/kythe/go/util/datasize"
 )
 
 // #region ReplicationSpec
 // Resource Specification Specific to Replication
 
 type ReplicationSpec struct {
-	ResolverDiscoverServers   bool              `json:"resolverDiscoverServers,omitempty"`
-	LogshipperBufferLength    int32             `json:"logshipperBufferLength,omitempty"`
-	LogshipperBufferSize      resource.Quantity `json:"logshipperBufferSize,omitempty"`
-	AllowForwardingViaHeader  bool              `json:"allowForwardingViaHeader,omitempty"`
-	BestEffortWalWaitDuration time.Duration     `json:"bestEffortWalWaitDuratione,omitempty"`
+	ResolverDiscoverServers               *bool            `json:"resolverDiscoverServers,omitempty"`
+	LogshipperBufferLength                *int32           `json:"logshipperBufferLength,omitempty"`
+	LogshipperBufferSize                  *datasize.Size   `json:"logshipperBufferSize,omitempty"`
+	AllowForwardingViaHeader              *bool            `json:"allowForwardingViaHeader,omitempty"`
+	BestEffortWalWaitDuration             *metav1.Duration `json:"bestEffortWalWaitDuratione,omitempty"`
+	AllowForwardingViaToken               *string          `json:"allowForwardingViaToken,omitempty"`
+	ReplicationCanaryWriteIntervalSeconds *int32           `json:"replicationCanaryWriteIntervalSeconds,omitempty"`
 }
 
-// #endregion
+func (r *ReplicationSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if r.ResolverDiscoverServers != nil {
+		_m["resolver_discover_servers"] = strconv.FormatBool(*r.ResolverDiscoverServers)
+	}
+	if r.LogshipperBufferLength != nil {
+		_m["logshipper_buffer_length"] = strconv.FormatInt(int64(*r.LogshipperBufferLength), 10)
+	}
+	if r.LogshipperBufferSize != nil {
+		_m["logshipper_buffer_size"] = strconv.Quote(fmt.Sprintf("%dkb", int(r.LogshipperBufferSize.Kilobytes())))
+	}
+	if r.AllowForwardingViaHeader != nil {
+		_m["allow_forwarding_via_header"] = strconv.FormatBool(*r.AllowForwardingViaHeader)
+	}
+	if r.BestEffortWalWaitDuration != nil {
+		_m["best_effort_wal_wait_duration"] = strconv.Quote(fmt.Sprintf("%s", r.BestEffortWalWaitDuration.Duration))
+	}
+	if r.AllowForwardingViaToken != nil {
+		_m["allow_forwarding_via_token"] = strconv.Quote(*r.AllowForwardingViaToken)
+	}
+	if r.ReplicationCanaryWriteIntervalSeconds != nil {
+		_m["replication_canary_write_interval_seconds"] = strconv.FormatInt(int64(*r.ReplicationCanaryWriteIntervalSeconds), 10)
+	}
+	return _m
+}

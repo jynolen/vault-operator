@@ -16,11 +16,27 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/jynolen/vault-operator/internal/utils"
+)
+
 // #region SentinelSpec
 // Resource Specification Specific to Sentinel
 
 type SentinelSpec struct {
 	AdditionalEnabledModules []string `json:"additionalEnabledModules,omitempty"`
+}
+
+func (s *SentinelSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if len(s.AdditionalEnabledModules) > 0 {
+		_m["additional_enabled_modules"] = fmt.Sprintf("[%s]", strings.Join(utils.Map(strconv.Quote, s.AdditionalEnabledModules), ","))
+	}
+	return _m
 }
 
 // #endregion

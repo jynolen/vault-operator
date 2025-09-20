@@ -16,6 +16,18 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	"strconv"
+)
+
 type AdaptiveOverloadProtectionSpec struct {
-	DisableWriteController bool `json:"disableWriteController,omitempty"`
+	DisableWriteController *bool `json:"disableWriteController,omitempty"`
+}
+
+func (a *AdaptiveOverloadProtectionSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if a.DisableWriteController != nil {
+		_m["disable_write_controller"] = strconv.FormatBool(*a.DisableWriteController)
+	}
+	return _m
 }

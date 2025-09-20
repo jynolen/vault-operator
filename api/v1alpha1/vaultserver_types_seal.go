@@ -16,102 +16,348 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	"maps"
+	"reflect"
+	"strconv"
+)
+
 // #region SealSpec
 // Resource Specification Specific to Seal
 
 // +kubebuilder:validation:MinProperties=1
 // +kubebuilder:validation:MaxProperties=1
 type SealSpec struct {
-	AliCloudKMS   *AliCloudKMSSealSpec   `json:"aliCloudKms,omitempty"`
-	AWSKms        *AWSKmsSealSpec        `json:"awsKms,omitempty"`
-	AzureKeyVault *AzureKeyVaultSealSpec `json:"azureKeyVault,omitempty"`
-	GCPKms        *GcpKmsSealSpec        `json:"gcpKms,omitempty"`
-	OCIKms        *OCIKmsSealSpec        `json:"ociKms,omitempty"`
-	PKCS11        *PKCS11SealSpec        `json:"pkcs11,omitempty"`
-	Transit       *TransitSealSpec       `json:"transit,omitempty"`
+	AliCloudKms   *SealAliCloudKmsSpec   `json:"aliCloudKms,omitempty"`
+	AWSKms        *SealAwsKmsSpec        `json:"awsKms,omitempty"`
+	AzureKeyVault *SealAzureKeyVaultSpec `json:"azureKeyVault,omitempty"`
+	GCPKms        *SealGcpKmsSpec        `json:"gcpKms,omitempty"`
+	OCIKms        *SealOciKmsSpec        `json:"ociKms,omitempty"`
+	PKCS11        *SealPKCS11Spec        `json:"pkcs11,omitempty"`
+	Transit       *SealTransitSpec       `json:"transit,omitempty"`
+}
+
+func (s *StorageSpec) InternalSeal() HclHelper {
+	v := reflect.ValueOf(*s)
+	t := reflect.TypeOf(*s)
+
+	for i := range t.NumField() {
+		intf := v.Field(i)
+		if !intf.IsNil() {
+			return intf.Interface().(HclHelper)
+		}
+	}
+	return nil
 }
 
 type InternalSealSpec struct {
-	Disabled    bool           `json:"disabled,omitempty"`
-	Credentials SecretSelector `json:"credentials"`
+	Disabled    *bool           `json:"disabled,omitempty"`
+	Credentials *SecretSelector `json:"credentials"`
 }
 
-type AliCloudKMSSealSpec struct {
+type SealAliCloudKmsSpec struct {
 	InternalSealSpec `json:",inline"`
-	Region           string `json:"region,omitempty"`
-	Domain           string `json:"domain,omitempty"`
-	KmsKeyId         string `json:"kmsKeyId"`
+	Region           *string `json:"region,omitempty"`
+	Domain           *string `json:"domain,omitempty"`
+	KmsKeyId         *string `json:"kmsKeyId"`
 }
 
-type AWSKmsSealSpec struct {
+func (s *SealAliCloudKmsSpec) Type() string {
+	return "alicloudkms"
+}
+
+func (s *SealAliCloudKmsSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if s.Disabled != nil {
+		_m["disabled"] = strconv.FormatBool(*s.Disabled)
+	}
+	if s.Region != nil {
+		_m["region"] = strconv.Quote(*s.Region)
+	}
+	if s.Domain != nil {
+		_m["domain"] = strconv.Quote(*s.Domain)
+	}
+	if s.KmsKeyId != nil {
+		_m["kms_key_id"] = strconv.Quote(*s.KmsKeyId)
+	}
+	return _m
+}
+
+type SealAwsKmsSpec struct {
 	InternalSealSpec `json:",inline"`
-	Region           string `json:"region,omitempty"`
-	Endpoint         string `json:"endpoint,omitempty"`
-	KmsKeyId         string `json:"kmsKeyId"`
+	Region           *string `json:"region,omitempty"`
+	Endpoint         *string `json:"endpoint,omitempty"`
+	KmsKeyId         *string `json:"kmsKeyId"`
 }
 
-type AzureKeyVaultSealSpec struct {
+func (s *SealAwsKmsSpec) Type() string {
+	return "awskms"
+}
+
+func (s *SealAwsKmsSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if s.Disabled != nil {
+		_m["disabled"] = strconv.FormatBool(*s.Disabled)
+	}
+	if s.Region != nil {
+		_m["region"] = strconv.Quote(*s.Region)
+	}
+	if s.Endpoint != nil {
+		_m["endpoint"] = strconv.Quote(*s.Endpoint)
+	}
+	if s.KmsKeyId != nil {
+		_m["kms_key_id"] = strconv.Quote(*s.KmsKeyId)
+	}
+	return _m
+}
+
+type SealAzureKeyVaultSpec struct {
 	InternalSealSpec `json:",inline"`
-	Environment      string `json:"environment,omitempty"`
-	VaultName        string `json:"vaultName"`
-	KeyName          string `json:"keyName"`
-	Resource         string `json:"resource,omitempty"`
+	Environment      *string `json:"environment,omitempty"`
+	VaultName        *string `json:"vaultName"`
+	KeyName          *string `json:"keyName"`
+	Resource         *string `json:"resource,omitempty"`
 }
 
-type GcpKmsSealSpec struct {
+func (s *SealAzureKeyVaultSpec) Type() string {
+	return "azurekeyvault"
+}
+
+func (s *SealAzureKeyVaultSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if s.Disabled != nil {
+		_m["disabled"] = strconv.FormatBool(*s.Disabled)
+	}
+	if s.Environment != nil {
+		_m["environment"] = strconv.Quote(*s.Environment)
+	}
+	if s.VaultName != nil {
+		_m["vault_name"] = strconv.Quote(*s.VaultName)
+	}
+	if s.KeyName != nil {
+		_m["key_name"] = strconv.Quote(*s.KeyName)
+	}
+	if s.Resource != nil {
+		_m["resource"] = strconv.Quote(*s.Resource)
+	}
+	return _m
+}
+
+type SealGcpKmsSpec struct {
 	InternalSealSpec `json:",inline"`
-	Project          string `json:"project"`
-	Region           string `json:"region"`
-	KeyRing          string `json:"keyRing"`
-	CryptoKey        string `json:"cryptoKey"`
+	Project          *string `json:"project"`
+	Region           *string `json:"region"`
+	KeyRing          *string `json:"keyRing"`
+	CryptoKey        *string `json:"cryptoKey"`
 }
 
-type OCIKmsSealSpec struct {
-	InternalSealSpec `json:",inline"`
-	AuthTypeApiKey   bool `json:"authTypeApiKey,omitempty"`
+func (s *SealGcpKmsSpec) Type() string {
+	return "gcpckms"
 }
 
-type PKCS11SealSpec struct {
-	Lib                 ConfigMapKeySelector `json:"lib"`
-	Slot                string               `json:"slot"`
-	TokenLabel          string               `json:"tokenLabel"`
-	Pin                 SecretKeySelector    `json:"pin"`
-	KeyLabel            string               `json:"keyLabel"`
-	KeyId               string               `json:"keyId"`
-	HMACKeyLabel        string               `json:"hmacKeyLabel"`
-	DefaultKeyLabel     string               `json:"defaultKeyLabel,omitempty"`
-	DefaultHMACKeyLabel string               `json:"defaultHmacKeyLabel,omitempty"`
-	HmacKeyId           string               `json:"hmacKeyId,omitempty"`
-	GenerateKey         bool                 `json:"generateKey,omitempty"`
-	ForceRwSession      bool                 `json:"forceRwSession,omitempty"`
-	MaxParallel         int32                `json:"maxParallel,omitempty"`
-	Disabled            bool                 `json:"disabled,omitempty"`
-	RsaEncryptLocal     bool                 `json:"rsaEncryptLocal,omitempty"`
+func (s *SealGcpKmsSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if s.Disabled != nil {
+		_m["disabled"] = strconv.FormatBool(*s.Disabled)
+	}
+	if s.Region != nil {
+		_m["region"] = strconv.Quote(*s.Region)
+	}
+	if s.KeyRing != nil {
+		_m["key_ring"] = strconv.Quote(*s.KeyRing)
+	}
+	if s.CryptoKey != nil {
+		_m["crypto_key"] = strconv.Quote(*s.CryptoKey)
+	}
+	if s.Project != nil {
+		_m["project"] = strconv.Quote(*s.Project)
+	}
+	return _m
+}
 
+type SealOciKmsSpec struct {
+	InternalSealSpec   `json:",inline"`
+	KeyId              *string `json:"keyId"`
+	CryptoEndpoint     *string `json:"cryptoEndpoint"`
+	ManagementEndpoint *string `json:"managementEndpoint"`
+	AuthTypeApiKey     *bool   `json:"authTypeApiKey,omitempty"`
+}
+
+func (s *SealOciKmsSpec) Type() string {
+	return "ocikms"
+}
+
+func (s *SealOciKmsSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if s.Disabled != nil {
+		_m["disabled"] = strconv.FormatBool(*s.Disabled)
+	}
+	if s.KeyId != nil {
+		_m["key_id"] = strconv.Quote(*s.KeyId)
+	}
+	if s.CryptoEndpoint != nil {
+		_m["crypto_endpoint"] = strconv.Quote(*s.CryptoEndpoint)
+	}
+	if s.AuthTypeApiKey != nil {
+		_m["auth_type_api_key"] = strconv.FormatBool(*s.AuthTypeApiKey)
+	}
+	if s.ManagementEndpoint != nil {
+		_m["management_endpoint"] = strconv.Quote(*s.ManagementEndpoint)
+	}
+	return _m
+}
+
+type SealPKCS11Spec struct {
+	Lib                 *string            `json:"lib"`
+	Slot                *string            `json:"slot"`
+	TokenLabel          *string            `json:"tokenLabel"`
+	Pin                 *SecretKeySelector `json:"pin"`
+	KeyLabel            *string            `json:"keyLabel"`
+	KeyId               *string            `json:"keyId"`
+	HMACKeyLabel        *string            `json:"hmacKeyLabel"`
+	DefaultKeyLabel     *string            `json:"defaultKeyLabel,omitempty"`
+	DefaultHMACKeyLabel *string            `json:"defaultHmacKeyLabel,omitempty"`
+	HmacKeyId           *string            `json:"hmacKeyId,omitempty"`
+	MaxParallel         *int32             `json:"maxParallel,omitempty"`
+	Disabled            *bool              `json:"disabled,omitempty"`
+	GenerateKey         *bool              `json:"generateKey,omitempty"`
+	ForceRwSession      *bool              `json:"forceRwSession,omitempty"`
+	RsaEncryptLocal     *bool              `json:"rsaEncryptLocal,omitempty"`
 	// +kubebuilder:validation:Enum=sha1;sha256;sha224;sha384;sha512
-	RsaOaepHash string `json:"rsaOaepHash,omitempty"`
+	RsaOaepHash *string `json:"rsaOaepHash,omitempty"`
 	// +kubebuilder:validation:Enum="0x1085";"0x1082";"0x1087";"0x0009";"0x0001"
-	Mechanism string `json:"mechanism,omitempty"`
+	Mechanism *string `json:"mechanism,omitempty"`
 	// +kubebuilder:validation:Enum="0x0251"
-	HMACMechanism string `json:"hmacMechanism,omitempty"`
+	HMACMechanism *string `json:"hmacMechanism,omitempty"`
+}
+
+func (s *SealPKCS11Spec) Type() string {
+	return "pkcs11"
+}
+
+func (s *SealPKCS11Spec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if s.Disabled != nil {
+		_m["disabled"] = strconv.FormatBool(*s.Disabled)
+	}
+	if s.Lib != nil {
+		_m["lib"] = strconv.Quote(*s.Lib)
+	}
+	if s.Slot != nil {
+		_m["slot"] = strconv.Quote(*s.Slot)
+	}
+	if s.TokenLabel != nil {
+		_m["token"] = strconv.Quote(*s.TokenLabel)
+	}
+	if s.KeyLabel != nil {
+		_m["key_label"] = strconv.Quote(*s.KeyLabel)
+	}
+	if s.DefaultKeyLabel != nil {
+		_m["default_key_label"] = strconv.Quote(*s.DefaultKeyLabel)
+	}
+	if s.KeyId != nil {
+		_m["key_id"] = strconv.Quote(*s.KeyId)
+	}
+	if s.HMACKeyLabel != nil {
+		_m["hmac_key_label"] = strconv.Quote(*s.HMACKeyLabel)
+	}
+	if s.DefaultHMACKeyLabel != nil {
+		_m["default_hmac_key_label"] = strconv.Quote(*s.DefaultHMACKeyLabel)
+	}
+	if s.HmacKeyId != nil {
+		_m["hmac_key_id"] = strconv.Quote(*s.HmacKeyId)
+	}
+	if s.Mechanism != nil {
+		_m["mechanism"] = strconv.Quote(*s.Mechanism)
+	}
+	if s.HMACMechanism != nil {
+		_m["hmac_mechanism"] = strconv.Quote(*s.HMACMechanism)
+	}
+	if s.RsaOaepHash != nil {
+		_m["rsa_oaep_hash"] = strconv.Quote(*s.RsaOaepHash)
+	}
+	if s.GenerateKey != nil {
+		_m["generate_key"] = strconv.FormatBool(*s.GenerateKey)
+	}
+	if s.ForceRwSession != nil {
+		_m["force_rw_session"] = strconv.FormatBool(*s.ForceRwSession)
+	}
+	if s.RsaEncryptLocal != nil {
+		_m["rsa_encrypt_local"] = strconv.FormatBool(*s.RsaEncryptLocal)
+	}
+	if s.MaxParallel != nil {
+		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
+	}
+	return _m
 }
 
 type TlsTransitSpec struct {
-	ServerName string               `json:"serverName"`
-	CaCert     ConfigMapKeySelector `json:"caCert,omitempty"`
-	ClientCert SecretSelector       `json:"clientCert"`
-	SkipVerify bool                 `json:"skipVerify,omitempty"`
+	ServerName *string               `json:"serverName,omitempty"`
+	CaCert     *ConfigMapKeySelector `json:"caCert"`
+	ClientCert *SecretSelector       `json:"clientCert"`
+	SkipVerify *bool                 `json:"skipVerify,omitempty"`
 }
 
-type TransitSealSpec struct {
+func (s *TlsTransitSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if s.ServerName != nil {
+		_m["tls_server_name"] = strconv.Quote(*s.ServerName)
+	}
+	if s.SkipVerify != nil {
+		_m["tls_skip_verify"] = strconv.FormatBool(*s.SkipVerify)
+	}
+	if s.CaCert != nil {
+		_m["tls_ca_cert"] = strconv.Quote("/seal/transit/ca.crt")
+	}
+	if s.ClientCert != nil {
+		_m["tls_client_cert"] = strconv.Quote("/seal/transit/tls.crt")
+		_m["tls_client_key"] = strconv.Quote("/seal/transit/tls.key")
+	}
+	return _m
+}
+
+type SealTransitSpec struct {
 	InternalSealSpec `json:",inline"`
-	KeyName          string         `json:"KeyName"`
-	Address          string         `json:"Address"`
-	KeyIdPrefix      string         `json:"KeyIdPrefix,omitempty"`
-	MountPath        string         `json:"MountPath"`
-	Namespace        string         `json:"Namespace,omitempty"`
-	DisableRenewal   string         `json:"DisableRenewal,omitempty"`
-	Tls              TlsTransitSpec `json:"tls,omitempty"`
+	KeyName          *string         `json:"keyName"`
+	Address          *string         `json:"address"`
+	KeyIdPrefix      *string         `json:"keyIdPrefix,omitempty"`
+	MountPath        *string         `json:"mountPath"`
+	Namespace        *string         `json:"namespace,omitempty"`
+	DisableRenewal   *bool           `json:"disableRenewal,omitempty"`
+	Tls              *TlsTransitSpec `json:"tls,omitempty"`
+}
+
+func (s *SealTransitSpec) Type() string {
+	return "transit"
+}
+
+func (s *SealTransitSpec) MapValue() map[string]any {
+	_m := map[string]any{}
+	if s.Disabled != nil {
+		_m["disabled"] = strconv.FormatBool(*s.Disabled)
+	}
+	if s.Address != nil {
+		_m["address"] = strconv.Quote(*s.Address)
+	}
+	if s.Address != nil {
+		_m["key_name"] = strconv.Quote(*s.KeyName)
+	}
+	if s.Address != nil {
+		_m["key_id_prefix"] = strconv.Quote(*s.KeyIdPrefix)
+	}
+	if s.Address != nil {
+		_m["mount_path"] = strconv.Quote(*s.MountPath)
+	}
+	if s.Address != nil {
+		_m["namespace"] = strconv.Quote(*s.Namespace)
+	}
+	if s.Address != nil {
+		_m["disable_renewal"] = strconv.FormatBool(*s.DisableRenewal)
+	}
+	if s.Tls != nil {
+		maps.Copy(_m, s.Tls.MapValue())
+	}
+	return _m
 }
 
 // #endregion

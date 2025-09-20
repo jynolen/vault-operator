@@ -6,4 +6,64 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: vaultserver-sample
 spec:
-  # TODO(user): Add fields here
+  config: 
+    ui: True
+    listenerTcp:
+      tls:
+        disable: false
+      httpTimeout:
+        read: 10s
+      xForwardedFor:
+        rejectNotPresent: true
+      proxyProcotol:
+        behavior: use_always
+        authorizedAddrs:
+          - 127.0.0.1
+          - 127.0.0.1
+      telemetry:
+        unauthenticatedMetricsAccess: true
+      profiling:
+        unauthenticatedPprofAccess: true
+      customResponseHeaders:
+        default:
+          CoucouDefault: 
+          - "CoucouDefaultVal"
+          CoucouDefault2: 
+          - "CoucouDefault2Val"
+        "4xx": 
+          CoucouDefault: 
+          - "CoucouDefaultVal"
+          CoucouDefault2: 
+          - "CoucouDefault2Val"
+        "202":
+          CoucouDefault: 
+          - "CoucouDefaultVal"
+          CoucouDefault2: 
+          - "CoucouDefault2Val"
+        "2xx": 
+          CoucouDefault: 
+          - "CoucouDefaultVal"
+          CoucouDefault2: 
+          - "CoucouDefault2Val"
+        "3xx":
+          CoucouDefault: 
+          - "CoucouDefaultVal"
+          CoucouDefault2:
+          - "CoucouDefault2Val"
+    # storage:
+    #   ociObjectStorage:
+    #     region: coucou
+    #     bucketName: bucket
+    #     namespaceName: dd
+    #     haEnabled: true
+    #     lockBucketName: lol
+    storage:
+      raft:
+        retryJoin:
+        - autoJoinScheme: https
+          leaderApiAddr: 127.0.0.1:8200
+
+  image: ""
+  size: 0
+
+  

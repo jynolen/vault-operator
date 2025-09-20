@@ -18,10 +18,10 @@ package v1alpha1
 
 import (
 	"fmt"
-	"time"
+	"strconv"
+	"strings"
 
-	url "github.com/jynolen/vault-operator/internal/url"
-
+	"github.com/jynolen/vault-operator/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -34,14 +34,14 @@ import (
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-
 type VaultServer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
 
 	Spec   VaultServerSpec   `json:"spec"`
-	Status VaultServerStatus `json:"status"`
+	Status VaultServerStatus `json:"status,omitempty"`
 }
 
 type VaultServerSpec struct {
@@ -49,105 +49,164 @@ type VaultServerSpec struct {
 	Image  string            `json:"image"`
 	Labels map[string]string `json:"labels,omitempty"`
 
-	Config            VaultServerConfigSpec             `json:"config"`
-	ConfigMapOverride *VaultServerConfigMapOverrideSpec `json:"configMapOverride,omitempty"`
+	PersistentVolumeClassName string                            `json:"persistentVolumeClassName,omitempty"`
+	Config                    *VaultServerConfigSpec            `json:"config"`
+	SecretOverride            *VaultServerConfigMapOverrideSpec `json:"configMapOverride,omitempty"`
 }
 
 type VaultServerConfigSpec struct {
 	// Operator Managed Config
-	ClusterAddr *url.URL `json:"-"`
-	ApiAddr     *url.URL `json:"-"`
-
-	// +default=/plugins/lib
-	PluginDirectory string `json:"-"`
-	// +default=/plugins/tmp
-	PluginTmpdir string `json:"-"`
-	// +default=0
-	PluginFileUid int32 `json:"-"`
-
-	// +default=/run/vault.pid
-	PidFile string `json:"-"`
-	// +default=/dev/stdout
-	LogFile string `json:"-"`
-
-	// User Managed Config
-	ClusterName string `json:"clusterName,omitempty"`
-
-	// +default=false
-	Ui bool `json:"ui,omitempty"`
-	// +default=false
-	DisableMLock bool `json:"disableMLock,omitempty"`
-
-	// +default=131072
-	CacheSize int32 `json:"cacheSize,omitempty"`
-	// +default=false
-	DisableSize bool `json:"disableCache,omitempty"`
-	// +default=768h
-	DefaultLeaseTTL time.Duration `json:"defaultLeaseTTL,omitempty"`
-	// +default=768h
-	MaxLeaseTTL time.Duration `json:"maxLeaseTTL,omitempty"`
-	// +default=90s
-	DefaultMaxRequestDuration time.Duration `json:"defaultMaxRequestDuration,omitempty"`
+	ClusterName                    *string            `json:"clusterName,omitempty"`
+	Ui                             *bool              `json:"ui,omitempty"`
+	DisableMLock                   *bool              `json:"disableMLock,omitempty"`
+	CacheSize                      *int32             `json:"cacheSize,omitempty"`
+	DisableCache                   *bool              `json:"disableCache,omitempty"`
+	DefaultLeaseTTL                *metav1.Duration   `json:"defaultLeaseTTL,omitempty"`
+	MaxLeaseTTL                    *metav1.Duration   `json:"maxLeaseTTL,omitempty"`
+	DefaultMaxRequestDuration      *metav1.Duration   `json:"defaultMaxRequestDuration,omitempty"`
+	RawStorageEndpoint             *bool              `json:"rawStorageEndpoint,omitempty"`
+	IntrospectionEndpoint          *bool              `json:"introspectionEndpoint,omitempty"`
+	EnableResponseHeaderHostname   *bool              `json:"enableResponseHeaderHostname,omitempty"`
+	EnableResponseHeaderRaftNodeId *bool              `json:"enableResponseHeaderRaftNodeId,omitempty"`
+	AllowAuditLogPrefixing         *bool              `json:"allowAuditLogPrefixing,omitempty"`
+	Experiments                    []string           `json:"experiments,omitempty"`
+	ImpreciseLeaseRoleTracking     *bool              `json:"impreciseLeaseRoleTracking,omitempty"`
+	EnablePostUnsealTrace          *bool              `json:"enablePostUnsealTrace,omitempty"`
+	PostUnsealTraceDirectory       *string            `json:"postUnsealTraceDirectory,omitempty"`
+	DisableClustering              *bool              `json:"disableClustering,omitempty"`
+	DisableSealwrap                *bool              `json:"disableSealwrap,omitempty"`
+	DisablePerformanceStandby      *bool              `json:"disablePerformanceStandby,omitempty"`
+	License                        *SecretKeySelector `json:"license,omitempty"`
+	AdministrativeNamespacePath    *string            `json:"administrativeNamespacePath,omitempty"`
+	RemoveIrrevocableLeaseAfter    *metav1.Duration   `json:"removeIrrevocableLeaseAfter,omitempty"`
 
 	// +kubebuilder:validation:Enum=statelock;quotas;expiration
-	DetectDeadlocks string `json:"detectDeadlocks,omitempty"`
-	// +default=false
-	RawStorageEndpoint bool `json:"rawStorageEndpoint,omitempty"`
-	// +default=false
-	IntrospectionEndpoint bool `json:"introspectionEndpoint,omitempty"`
-	// +default=false
-	EnableResponseHeaderHostname bool `json:"enableResponseHeaderHostname,omitempty"`
-	// +default=false
-	EnableResponseHeaderRaftNodeId bool `json:"enableResponseHeaderRaftNodeId,omitempty"`
-
+	DetectDeadlocks *string `json:"detectDeadlocks,omitempty"`
 	// +kubebuilder:validation:Enum=trace;debug;info;warn;error
-	LogLevel string `json:"logLevel,omitempty"`
+	LogLevel *string `json:"logLevel,omitempty"`
 	// +kubebuilder:validation:Enum=trace;debug;info;warn;error;off
-	LogRequestsLevel string `json:"logRequestsLevel,omitempty"`
-	// +default=standard
-	AllowAuditLogPrefixing bool `json:"allowAuditLogPrefixing,omitempty"`
-
+	LogRequestsLevel *string `json:"logRequestsLevel,omitempty"`
 	// +kubebuilder:validation:Enum=standard;json
-	// +default=standard
-	LogFormat   string   `json:"logFormat,omitempty"`
-	Experiments []string `json:"experiments,omitempty"`
-	// +default=false
-	ImpreciseLeaseRoleTracking bool `json:"impreciseLeaseRoleTracking,omitempty"`
-	// +default=false
-	EnablePostUnsealTrace    bool   `json:"enablePostUnsealTrace,omitempty"`
-	PostUnsealTraceDirectory string `json:"postUnsealTraceDirectory,omitempty"`
-
-	// +default=false
-	DisableClustering bool `json:"disableClustering,omitempty"`
-	// +default=false
-	DisableSealwrap bool `json:"disableSealwrap,omitempty"`
-	// +default=false
-	DisablePerformanceStandby   bool               `json:"disablePerformanceStandby,omitempty"`
-	License                     *SecretKeySelector `json:"license,omitempty"`
-	AdministrativeNamespacePath string             `json:"administrativeNamespacePath,omitempty"`
-	// +default=2d
-	RemoveIrrevocableLeaseAfter time.Duration `json:"removeIrrevocableLeaseAfter,omitempty"`
+	LogFormat *string `json:"logFormat,omitempty"`
 
 	// OSS features stanza
-	Listener            *ListenerSpec            `json:"listener"`
-	Telemetry           *TelemetrySpec           `json:"telemetry,omitempty"`
-	UserLockout         []UserLockoutSpec        `json:"userLockout,omitempty"`
-	Seal                *SealSpec                `json:"seal,omitempty"`
-	ServiceRegistration *ServiceRegistrationSpec `json:"serviceRegistration,omitempty"`
-	Storage             *StorageSpec             `json:"storage,omitempty"`
+	ListenerTcp         *ListenerTCPSpec          `json:"listenerTcp"`
+	Telemetry           *TelemetrySpec            `json:"telemetry,omitempty"`
+	UserLockout         []UserLockoutSpec         `json:"userLockout,omitempty"`
+	Seal                []SealSpec                `json:"seal,omitempty"`
+	ServiceRegistration []ServiceRegistrationSpec `json:"serviceRegistration,omitempty"`
+	Storage             *StorageSpec              `json:"storage"`
 
 	// Enterprise features stanza
-	Entropy                    *EntropySpec                    `json:"entropy,omitempty"`
 	KMSLibrary                 *KmsLibrarySpec                 `json:"kmsLibrary,omitempty"`
 	Replication                *ReplicationSpec                `json:"replication,omitempty"`
 	Reporting                  *ReportingSpec                  `json:"reporting,omitempty"`
-	SentinelSpec               *SentinelSpec                   `json:"sentinel,omitempty"`
+	Sentinel                   *SentinelSpec                   `json:"sentinel,omitempty"`
 	AdaptiveOverloadProtection *AdaptiveOverloadProtectionSpec `json:"adaptiveOverloadProtection,omitempty"`
+}
+
+func (s *VaultServerConfigSpec) MapValue() map[string]any {
+	scheme := "https"
+	if s.ListenerTcp.TLS.Disable {
+		scheme = "http"
+	}
+
+	_m := map[string]any{
+		"cluster_addr":     strconv.Quote(fmt.Sprintf("%s://127.0.0.1:8201", scheme)),
+		"api_addr":         strconv.Quote(fmt.Sprintf("%s://127.0.0.1:8200", scheme)),
+		"pid_file":         strconv.Quote("/run/vault.pid"),
+		"log_file":         strconv.Quote("/dev/stdout"),
+		"plugin_tmpdir":    strconv.Quote("/plugins/tmp"),
+		"plugin_directory": strconv.Quote("/plugins"),
+	}
+
+	if s.Ui != nil {
+		_m["ui"] = strconv.FormatBool(*s.Ui)
+	}
+	if s.ClusterName != nil {
+		_m["cluster_name"] = strconv.Quote(*s.ClusterName)
+	}
+	if s.DisableMLock != nil {
+		_m["disable_mlock"] = strconv.FormatBool(*s.DisableMLock)
+	}
+	if s.CacheSize != nil {
+		_m["cache_sizes"] = strconv.FormatInt(int64(*s.CacheSize), 10)
+	}
+	if s.DisableCache != nil {
+		_m["disable_cache"] = strconv.FormatBool(*s.DisableCache)
+	}
+	if s.DefaultLeaseTTL != nil {
+		_m["default_lease_ttl"] = strconv.Quote(fmt.Sprintf("%s", s.DefaultLeaseTTL.Duration))
+	}
+	if s.MaxLeaseTTL != nil {
+		_m["max_lease_ttl"] = strconv.Quote(fmt.Sprintf("%s", s.MaxLeaseTTL.Duration))
+	}
+	if s.DefaultMaxRequestDuration != nil {
+		_m["default_max_request_duration"] = strconv.Quote(fmt.Sprintf("%s", s.DefaultMaxRequestDuration.Duration))
+	}
+	if s.RawStorageEndpoint != nil {
+		_m["raw_storage_endpoint"] = strconv.FormatBool(*s.RawStorageEndpoint)
+	}
+	if s.IntrospectionEndpoint != nil {
+		_m["introspection_endpoint"] = strconv.FormatBool(*s.IntrospectionEndpoint)
+	}
+	if s.EnableResponseHeaderHostname != nil {
+		_m["enable_response_header_hostname"] = strconv.FormatBool(*s.EnableResponseHeaderHostname)
+	}
+	if s.EnableResponseHeaderRaftNodeId != nil {
+		_m["enable_response_header_raft_node_id"] = strconv.FormatBool(*s.EnableResponseHeaderRaftNodeId)
+	}
+	if s.AllowAuditLogPrefixing != nil {
+		_m["allow_audit_log_prefixing"] = strconv.FormatBool(*s.AllowAuditLogPrefixing)
+	}
+	if len(s.Experiments) > 0 {
+		_m["disable_cache"] = fmt.Sprintf("[%s]", strings.Join(utils.Map(strconv.Quote, s.Experiments), ","))
+	}
+	if s.ImpreciseLeaseRoleTracking != nil {
+		_m["imprecise_lease_role_tracking"] = strconv.FormatBool(*s.ImpreciseLeaseRoleTracking)
+	}
+	if s.EnablePostUnsealTrace != nil {
+		_m["enable_post_unseal_trace"] = strconv.FormatBool(*s.EnablePostUnsealTrace)
+	}
+	if s.PostUnsealTraceDirectory != nil {
+		_m["post_unseal_trace_directory"] = strconv.Quote(*s.PostUnsealTraceDirectory)
+	}
+	if s.DisableClustering != nil {
+		_m["disable_clustering"] = strconv.FormatBool(*s.DisableClustering)
+	}
+	if s.DisableSealwrap != nil {
+		_m["disable_sealwrap"] = strconv.FormatBool(*s.DisableSealwrap)
+	}
+	if s.DisablePerformanceStandby != nil {
+		_m["disable_performance_standby"] = strconv.FormatBool(*s.DisablePerformanceStandby)
+	}
+	if s.License != nil {
+		_m["license_path"] = strconv.Quote("/vault-license")
+	}
+	if s.AdministrativeNamespacePath != nil {
+		_m["administrative_namespace_path"] = strconv.Quote(*s.AdministrativeNamespacePath)
+	}
+	if s.RemoveIrrevocableLeaseAfter != nil {
+		_m["remove_irrevocable_lease_after"] = strconv.Quote(fmt.Sprintf("%s", s.RemoveIrrevocableLeaseAfter.Duration))
+	}
+	if s.DetectDeadlocks != nil {
+		_m["detect_deadlocks"] = strconv.Quote(*s.DetectDeadlocks)
+	}
+	if s.LogLevel != nil {
+		_m["log_level"] = strconv.Quote(*s.LogLevel)
+	}
+	if s.LogRequestsLevel != nil {
+		_m["log_requests_level"] = strconv.Quote(*s.LogRequestsLevel)
+	}
+	if s.LogFormat != nil {
+		_m["log_format"] = strconv.Quote(*s.LogFormat)
+	}
+	return _m
 }
 
 type VaultServerConfigMapOverrideSpec struct {
 	Name string            `json:"configMapOverride,omitempty"`
-	Data map[string]string `json:"data,omitempty"`
+	Data map[string][]byte `json:"data,omitempty"`
 }
 
 // VaultServerStatus defines the observed state of VaultServer.
@@ -158,9 +217,8 @@ type VaultServerStatus struct {
 	Conditions      []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
 
-// +kubebuilder:object:root=true
-
 // VaultServerList contains a list of VaultServer.
+// +kubebuilder:object:root=true
 type VaultServerList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -169,10 +227,10 @@ type VaultServerList struct {
 
 func (v *VaultServer) GetConfigMapNameForVaultConfig() string {
 	generateName := fmt.Sprintf("%s-config", v.GetObjectMeta().GetName())
-	if v.Spec.ConfigMapOverride == nil || v.Spec.ConfigMapOverride.Name == "" {
+	if v.Spec.SecretOverride == nil || v.Spec.SecretOverride.Name == "" {
 		return generateName
 	}
-	return v.Spec.ConfigMapOverride.Name
+	return v.Spec.SecretOverride.Name
 }
 
 func init() {

@@ -1,0 +1,101 @@
+version: "3"
+
+vars:
+  LOCALBIN: '{{ printf "%s/bin" .USER_WORKING_DIR }}'
+  KIND_CLUSTER: '{{ .KIND_CLUSTER | default "kind-vault-operator" }}'
+
+includes:
+  deps:
+    taskfile: "Taskfile.deps.yaml"
+    internal: true
+
+tasks:
+  default:
+    cmds:
+      - task: manifests
+
+  manifests:
+    desc: Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+    deps:
+      - deps:go:controller-gen:install
+    cmds:
+      - "{{ .LOCALBIN }}/controller-gen paths='{{ .USER_WORKING_DIR }}/...'  rbac:roleName=manager-role crd webhook output:crd:artifacts:config={{ .USER_WORKING_DIR }}/config/crd/bases"
+      - "{{ .LOCALBIN }}/controller-gen  paths='{{ .USER_WORKING_DIR }}/...' object:headerFile='{{ .USER_WORKING_DIR }}/hack/boilerplate.go.txt'"
+
+  fmt:
+    desc: Run go fmt against code.
+    cmds:
+      - go fmt {{ .USER_WORKING_DIR }}/...
+  
+  vet:
+    desc: Run go vet against code.
+    cmds:
+      - go vet {{ .USER_WORKING_DIR }}/...
+
+  test:
+    desc: Run tests.
+    deps:
+      - deps:go:k8s:install
+      - manifests
+      - fmt
+      - vet
+    env:
+      KUBEBUILDER_ASSETS:
+        sh: "{{ .LOCALBIN }}/setup-envtest use --bin-dir {{ .LOCALBIN }} -p path"
+    vars:
+      GO_LIST:
+        sh: go list {{ .USER_WORKING_DIR }}/... | grep -v /e2e
+    cmds:
+      - go test {{ .GO_LIST | replace "\n" " "}} -coverprofile cover.out
+
+  setup-test-e2e:
+    desc: Set up a Kind cluster for e2e tests if it does not exist
+    deps:
+      - deps:ensure-kind
+    cmds:
+      - "kind create cluster --name {{.KIND_CLUSTER}}"
+    status:
+      - kind get clusters | grep {{.KIND_CLUSTER}}
+
+  test-e2e:
+    desc: Run the e2e tests. Expected an isolated environment using Kind.
+    deps:
+      - deps:ensure-kind
+      - setup-test-e2e
+      - manifests
+      - fmt
+      - vet
+    env:
+      KIND_CLUSTER: "{{.KIND_CLUSTER }}"
+    cmds:
+      - defer:
+          task: cleanup-test-e2e
+      - cmd: go test {{ .USER_WORKING_DIR }}/test/e2e/ -v -ginkgo.v
+
+  cleanup-test-e2e:
+    deps:
+      - deps:ensure-kind
+    desc: Tear down the Kind cluster used for e2e tests
+    cmd: "kind delete cluster --name {{.KIND_CLUSTER}}"
+    status:
+      - kind get clusters | grep {{.KIND_CLUSTER}}
+
+  lint:
+    desc: Run golangci-lint linter
+    deps:
+      - deps:go:golangci-lint:install
+      - manifests
+    cmd: "{{ .LOCALBIN }}/golangci-lint run"
+
+  lint-fix:
+    desc: Run golangci-lint linter and perform fixes
+    deps:
+      - deps:go:golangci-lint:install
+      - manifests
+    cmd: "{{ .LOCALBIN }}/golangci-lint run --fix"
+
+  lint-config:
+    desc: Verify golangci-lint linter configuration
+    deps:
+      - deps:go:golangci-lint:install
+    cmd: "{{ .LOCALBIN }}/golangci-lint config verify"

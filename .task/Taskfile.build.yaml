@@ -1,0 +1,95 @@
+version: "3"
+
+vars:
+  LOCALBIN: '{{ printf "%s/bin" .USER_WORKING_DIR }}'
+  CONTAINER_TOOL: '{{ .CONTAINER_TOOL | default "podman" }}'
+
+includes:
+  deps:
+    taskfile: "Taskfile.deps.yaml"
+    internal: true
+  dev:
+    taskfile: "Taskfile.dev.yaml"
+    internal: true
+  deploy:
+    taskfile: "Taskfile.deploy.yaml"
+    internal: true
+tasks:
+  default:
+    desc: Build manager binary.
+    deps:
+      - dev:manifests
+      - dev:fmt
+      - dev:vet
+    cmds:
+      - go build -o {{ .USER_WORKING_DIR }}/bin/manager {{ .USER_WORKING_DIR }}/cmd/main.go
+    generates:
+      - bin/manager
+    sources:
+      - cmd/*
+      - internal/**
+
+  run:
+    desc: Run a controller from your host.
+    deps:
+      - dev:manifests
+      - dev:fmt
+      - dev:vet
+      - deploy:crds
+    vars:
+      GO_LIST:
+        sh: go list {{ .USER_WORKING_DIR }}/... | grep -v /e2e
+    cmds:
+      - go run {{ .USER_WORKING_DIR }}/cmd/main.go
+
+  docker:
+    desc: Build docker image with the manager.
+    vars:
+      DOCKERFILE: '{{ .DOCKERFILE | default "Dockerfile" }}'
+    cmds:
+      - "{{ .CONTAINER_TOOL }} build -t {{.IMG }} . -f {{ .DOCKERFILE }}"
+    sources:
+      - "{{ .DOCKERFILE }}"
+      - cmd/*
+      - internal/**
+      - api/**
+
+  docker:push:
+    desc: Push docker image with the manager.
+    deps:
+      - docker-build
+    cmds:
+      - "{{ .CONTAINER_TOOL }} push {{.IMG }}"
+
+  docker:buildx:
+    desc: Build and push docker image for the manager for cross-platform support
+    cmds:
+      - sed -e '1 s/\(^FROM\)/FROM --platform=${BUILDPLATFORM}/; t' -e ' 1,// s//FROM --platform=${BUILDPLATFORM}/' Dockerfile > Dockerfile.cross
+      - "{{ .CONTAINER_TOOL }} buildx create --name vault-operator-builder"
+      - "{{ .CONTAINER_TOOL }} buildx use vault-operator-builder"
+      - "{{ .CONTAINER_TOOL }} buildx build --push --platform={{.PLATFORMS}} --tag {{.IMG}} -f Dockerfile.cross ."
+      - "{{ .CONTAINER_TOOL }} buildx rm vault-operator-builder"
+      - rm Dockerfile.cross
+    sources:
+      - Dockerfile
+      - cmd/*
+      - internal/**
+      - api/**
+
+  build-installer:
+    desc: Generate a consolidated YAML with CRDs and deployment.
+    deps:
+      - manifests
+      - deps:go:kustomize:install
+    dir: config/default
+    cmds:
+      - mkdir -p {{.ROOT_DIR}}/dist
+      - "{{ .LOCALBIN }}/kustomize edit set image controller={{.IMG}}"
+      - "{{ .LOCALBIN }}/kustomize build config/default > {{.ROOT_DIR}}/dist/install.yaml"
+    generates:
+      - "{{.ROOT_DIR}}/dist"
+    sources:
+      - "{{.ROOT_DIR}}/Dockerfile"
+      - "{{.ROOT_DIR}}/cmd/*"
+      - "{{.ROOT_DIR}}/internal/**"
+      - "{{.ROOT_DIR}}/api/**"
