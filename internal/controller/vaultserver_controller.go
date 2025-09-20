@@ -259,6 +259,9 @@ func (r *VaultServerReconciler) reconcileStatefulSet(ctx context.Context, vaultS
 
 func (r *VaultServerReconciler) reconcileConfigMap(ctx context.Context, vaultServer *v1alpha1.VaultServer) error {
 	log := r.logger.WithValues("ConfigMap.Namespace", vaultServer.GetNamespace(), "ConfigMap.Name", vaultServer.GetConfigMapNameForVaultConfig())
+	if err := r.resolveSecret(ctx, vaultServer); err != nil {
+		return err
+	}
 	secret, err := r.secretForVaultServer(vaultServer)
 	if err != nil {
 		log.Error(err, "Failed to template vault config, template error")
@@ -364,6 +367,9 @@ func (r *VaultServerReconciler) statefulSetForVaultServer(
 	vaultServer *v1alpha1.VaultServer) (*appsv1.StatefulSet, error) {
 	replicas := vaultServer.Spec.Size
 	addressPort, err := strconv.ParseInt(vaultServer.Spec.Config.ListenerTcp.Address().Port(), 10, 32)
+	if err != nil {
+		return nil, err
+	}
 	clusterPort, err := strconv.ParseInt(vaultServer.Spec.Config.ListenerTcp.ClusterAddress().Port(), 10, 32)
 	if err != nil {
 		return nil, err

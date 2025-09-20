@@ -871,6 +871,8 @@ func (s *StorageFoundationDbSpec) MapValue() map[string]any {
 }
 
 type StorageAerospikeSpec struct {
+	Username    *string
+	Password    *string
 	Hostname    *string         `json:"hostname,omitempty"`
 	Port        *int32          `json:"port,omitempty"`
 	HostList    []string        `json:"hostList,omitempty"`
@@ -893,6 +895,12 @@ func (s *StorageAerospikeSpec) MapValue() map[string]any {
 	_m := map[string]any{}
 	if s.Hostname != nil {
 		_m["hostname"] = strconv.Quote(*s.Hostname)
+	}
+	if s.Username != nil {
+		_m["username"] = strconv.Quote(*s.Username)
+	}
+	if s.Password != nil {
+		_m["password"] = strconv.Quote(*s.Password)
 	}
 	if s.Port != nil {
 		_m["port"] = strconv.Quote(strconv.FormatInt(int64(*s.Port), 10))
@@ -921,6 +929,8 @@ func (s *StorageAerospikeSpec) MapValue() map[string]any {
 
 type StorageAlicloudOssSpec struct {
 	InternalStorageSpec `json:",inline"`
+	AccessKey           *string
+	SecretKey           *string
 	Bucket              *string         `json:"bucket,omitempty"`
 	Endpoint            *string         `json:"endpoint,omitempty"`
 	Credentials         *SecretSelector `json:"credentials,omitempty"`
@@ -935,6 +945,12 @@ func (s *StorageAlicloudOssSpec) MapValue() map[string]any {
 	if s.Endpoint != nil {
 		_m["endpoint"] = strconv.Quote(*s.Endpoint)
 	}
+	if s.AccessKey != nil {
+		_m["access_key"] = strconv.Quote(*s.AccessKey)
+	}
+	if s.SecretKey != nil {
+		_m["secret_key"] = strconv.Quote(*s.SecretKey)
+	}
 	if s.Bucket != nil {
 		_m["bucket"] = strconv.Quote(*s.Bucket)
 	}
@@ -946,6 +962,7 @@ func (s *StorageAlicloudOssSpec) MapValue() map[string]any {
 
 type StorageAzureSpec struct {
 	InternalStorageSpec `json:",inline"`
+	AccountKey          *string
 	AccountName         *string         `json:"accountName"`
 	Container           *string         `json:"container"`
 	Environment         *string         `json:"environment,omitempty"`
@@ -961,6 +978,9 @@ func (s *StorageAzureSpec) MapValue() map[string]any {
 	_m := map[string]any{}
 	if s.AccountName != nil {
 		_m["accountName"] = strconv.Quote(*s.AccountName)
+	}
+	if s.AccountKey != nil {
+		_m["accountKey"] = strconv.Quote(*s.AccountKey)
 	}
 	if s.Container != nil {
 		_m["container"] = strconv.Quote(*s.Container)

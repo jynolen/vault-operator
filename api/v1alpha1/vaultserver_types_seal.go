@@ -57,6 +57,8 @@ type InternalSealSpec struct {
 
 type SealAliCloudKmsSpec struct {
 	InternalSealSpec `json:",inline"`
+	AccessKey        *string
+	SecretKey        *string
 	Region           *string `json:"region,omitempty"`
 	Domain           *string `json:"domain,omitempty"`
 	KmsKeyId         *string `json:"kmsKeyId"`
@@ -74,6 +76,12 @@ func (s *SealAliCloudKmsSpec) MapValue() map[string]any {
 	if s.Region != nil {
 		_m["region"] = strconv.Quote(*s.Region)
 	}
+	if s.AccessKey != nil {
+		_m["access_key"] = strconv.Quote(*s.AccessKey)
+	}
+	if s.SecretKey != nil {
+		_m["secret_key"] = strconv.Quote(*s.SecretKey)
+	}
 	if s.Domain != nil {
 		_m["domain"] = strconv.Quote(*s.Domain)
 	}
@@ -85,6 +93,9 @@ func (s *SealAliCloudKmsSpec) MapValue() map[string]any {
 
 type SealAwsKmsSpec struct {
 	InternalSealSpec `json:",inline"`
+	AccessKey        *string
+	SecretKey        *string
+	SessionToken     *string
 	Region           *string `json:"region,omitempty"`
 	Endpoint         *string `json:"endpoint,omitempty"`
 	KmsKeyId         *string `json:"kmsKeyId"`
@@ -102,6 +113,15 @@ func (s *SealAwsKmsSpec) MapValue() map[string]any {
 	if s.Region != nil {
 		_m["region"] = strconv.Quote(*s.Region)
 	}
+	if s.AccessKey != nil {
+		_m["access_key"] = strconv.Quote(*s.AccessKey)
+	}
+	if s.SecretKey != nil {
+		_m["secret_key"] = strconv.Quote(*s.SecretKey)
+	}
+	if s.SessionToken != nil {
+		_m["session_token"] = strconv.Quote(*s.SessionToken)
+	}
 	if s.Endpoint != nil {
 		_m["endpoint"] = strconv.Quote(*s.Endpoint)
 	}
@@ -113,6 +133,10 @@ func (s *SealAwsKmsSpec) MapValue() map[string]any {
 
 type SealAzureKeyVaultSpec struct {
 	InternalSealSpec `json:",inline"`
+	TenantID         *string
+	ClientID         *string
+	ClientSecret     *string
+	SessionToken     *string
 	Environment      *string `json:"environment,omitempty"`
 	VaultName        *string `json:"vaultName"`
 	KeyName          *string `json:"keyName"`
@@ -157,8 +181,12 @@ func (s *SealGcpKmsSpec) Type() string {
 
 func (s *SealGcpKmsSpec) MapValue() map[string]any {
 	_m := map[string]any{}
+
 	if s.Disabled != nil {
 		_m["disabled"] = strconv.FormatBool(*s.Disabled)
+	}
+	if s.Credentials != nil {
+		_m["credentials"] = strconv.Quote("/gcp/client_secret.json")
 	}
 	if s.Region != nil {
 		_m["region"] = strconv.Quote(*s.Region)
@@ -208,10 +236,11 @@ func (s *SealOciKmsSpec) MapValue() map[string]any {
 }
 
 type SealPKCS11Spec struct {
+	Pin                 *string
 	Lib                 *string            `json:"lib"`
 	Slot                *string            `json:"slot"`
 	TokenLabel          *string            `json:"tokenLabel"`
-	Pin                 *SecretKeySelector `json:"pin"`
+	PinSecret           *SecretKeySelector `json:"pinSecret"`
 	KeyLabel            *string            `json:"keyLabel"`
 	KeyId               *string            `json:"keyId"`
 	HMACKeyLabel        *string            `json:"hmacKeyLabel"`
@@ -248,6 +277,9 @@ func (s *SealPKCS11Spec) MapValue() map[string]any {
 	}
 	if s.TokenLabel != nil {
 		_m["token"] = strconv.Quote(*s.TokenLabel)
+	}
+	if s.Pin != nil {
+		_m["pin"] = strconv.Quote(*s.Pin)
 	}
 	if s.KeyLabel != nil {
 		_m["key_label"] = strconv.Quote(*s.KeyLabel)
@@ -318,6 +350,7 @@ func (s *TlsTransitSpec) MapValue() map[string]any {
 
 type SealTransitSpec struct {
 	InternalSealSpec `json:",inline"`
+	Token            *string
 	KeyName          *string         `json:"keyName"`
 	Address          *string         `json:"address"`
 	KeyIdPrefix      *string         `json:"keyIdPrefix,omitempty"`
@@ -342,6 +375,10 @@ func (s *SealTransitSpec) MapValue() map[string]any {
 	if s.Address != nil {
 		_m["key_name"] = strconv.Quote(*s.KeyName)
 	}
+	if s.Token != nil {
+		_m["token"] = strconv.Quote(*s.Token)
+	}
+
 	if s.Address != nil {
 		_m["key_id_prefix"] = strconv.Quote(*s.KeyIdPrefix)
 	}

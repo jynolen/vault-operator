@@ -602,7 +602,7 @@ spec:
                               - "0x0009"
                               - "0x0001"
                               type: string
-                            pin:
+                            pinSecret:
                               properties:
                                 secretKeyRef:
                                   properties:
@@ -638,7 +638,7 @@ spec:
                           - keyId
                           - keyLabel
                           - lib
-                          - pin
+                          - pinSecret
                           - slot
                           - tokenLabel
                           type: object
@@ -720,6 +720,7 @@ spec:
                           - mountPath
                           type: object
                       type: object
+                    maxItems: 2
                     type: array
                   sentinel:
                     properties:
@@ -2012,20 +2013,23 @@ spec:
                 - listenerTcp
                 - storage
                 type: object
-              configMapOverride:
-                properties:
-                  configMapOverride:
-                    type: string
-                  data:
-                    additionalProperties:
-                      type: string
-                    type: object
-                type: object
               image:
                 type: string
               labels:
                 additionalProperties:
                   type: string
+                type: object
+              persistentVolumeClassName:
+                type: string
+              secretMapOverride:
+                properties:
+                  configMapOverride:
+                    type: string
+                  data:
+                    additionalProperties:
+                      format: byte
+                      type: string
+                    type: object
                 type: object
               size:
                 format: int32

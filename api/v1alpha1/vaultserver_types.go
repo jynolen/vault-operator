@@ -49,9 +49,9 @@ type VaultServerSpec struct {
 	Image  string            `json:"image"`
 	Labels map[string]string `json:"labels,omitempty"`
 
-	PersistentVolumeClassName string                            `json:"persistentVolumeClassName,omitempty"`
-	Config                    *VaultServerConfigSpec            `json:"config"`
-	SecretOverride            *VaultServerConfigMapOverrideSpec `json:"configMapOverride,omitempty"`
+	PersistentVolumeClassName string                         `json:"persistentVolumeClassName,omitempty"`
+	Config                    *VaultServerConfigSpec         `json:"config"`
+	SecretOverride            *VaultServerSecretOverrideSpec `json:"secretMapOverride,omitempty"`
 }
 
 type VaultServerConfigSpec struct {
@@ -90,9 +90,10 @@ type VaultServerConfigSpec struct {
 	LogFormat *string `json:"logFormat,omitempty"`
 
 	// OSS features stanza
-	ListenerTcp         *ListenerTCPSpec          `json:"listenerTcp"`
-	Telemetry           *TelemetrySpec            `json:"telemetry,omitempty"`
-	UserLockout         []UserLockoutSpec         `json:"userLockout,omitempty"`
+	ListenerTcp *ListenerTCPSpec  `json:"listenerTcp"`
+	Telemetry   *TelemetrySpec    `json:"telemetry,omitempty"`
+	UserLockout []UserLockoutSpec `json:"userLockout,omitempty"`
+	// +kubebuilder:validation:MaxItems=2
 	Seal                []SealSpec                `json:"seal,omitempty"`
 	ServiceRegistration []ServiceRegistrationSpec `json:"serviceRegistration,omitempty"`
 	Storage             *StorageSpec              `json:"storage"`
@@ -204,7 +205,7 @@ func (s *VaultServerConfigSpec) MapValue() map[string]any {
 	return _m
 }
 
-type VaultServerConfigMapOverrideSpec struct {
+type VaultServerSecretOverrideSpec struct {
 	Name string            `json:"configMapOverride,omitempty"`
 	Data map[string][]byte `json:"data,omitempty"`
 }
