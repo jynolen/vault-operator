@@ -17,15 +17,17 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
 	"fmt"
 	"maps"
-	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/zeebo/xxh3"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"kythe.io/kythe/go/util/datasize"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // #region StorageSpec
@@ -58,15 +60,75 @@ type StorageSpec struct {
 	ZooKeeper          *StorageZooKeeperSpec          `json:"zooKeeper,omitempty"`
 }
 
-func (s *StorageSpec) InternalStorage() HclHelper {
-	v := reflect.ValueOf(*s)
-	t := reflect.TypeOf(*s)
-
-	for i := range t.NumField() {
-		intf := v.Field(i)
-		if !intf.IsNil() {
-			return intf.Interface().(HclHelper)
-		}
+func (s *StorageSpec) InternalStorage() ConfigBuilderHelper {
+	if s.Aerospike != nil {
+		return s.Aerospike
+	}
+	if s.AlicloudOss != nil {
+		return s.AlicloudOss
+	}
+	if s.InMem != nil {
+		return s.InMem
+	}
+	if s.FileSystem != nil {
+		return s.FileSystem
+	}
+	if s.Azure != nil {
+		return s.Azure
+	}
+	if s.Cassandra != nil {
+		return s.Cassandra
+	}
+	if s.CockroachDB != nil {
+		return s.CockroachDB
+	}
+	if s.Consul != nil {
+		return s.Consul
+	}
+	if s.CouchDB != nil {
+		return s.CouchDB
+	}
+	if s.DynamoDB != nil {
+		return s.DynamoDB
+	}
+	if s.Etcd != nil {
+		return s.Etcd
+	}
+	if s.FoundationDb != nil {
+		return s.FoundationDb
+	}
+	if s.GoogleCloudSpanner != nil {
+		return s.GoogleCloudSpanner
+	}
+	if s.GoogleCloudStorage != nil {
+		return s.GoogleCloudStorage
+	}
+	if s.Raft != nil {
+		return s.Raft
+	}
+	if s.Manta != nil {
+		return s.Manta
+	}
+	if s.MsSql != nil {
+		return s.MsSql
+	}
+	if s.MySql != nil {
+		return s.MySql
+	}
+	if s.OCIObjectStorage != nil {
+		return s.OCIObjectStorage
+	}
+	if s.PostgreSql != nil {
+		return s.PostgreSql
+	}
+	if s.S3 != nil {
+		return s.S3
+	}
+	if s.Swift != nil {
+		return s.Swift
+	}
+	if s.ZooKeeper != nil {
+		return s.ZooKeeper
 	}
 	return nil
 }
@@ -128,6 +190,16 @@ type StorageRaftSpec struct {
 	MaxMountAndNamespaceTableEntrySize *int32                 `json:"maxMountAndNamespaceTableEntrySize,omitempty"`
 	AutopilotReconcileInterval         *metav1.Duration       `json:"autopilotReconcileInterval,omitempty"`
 	AutopilotUpdateInterval            *metav1.Duration       `json:"autopilotUpdateInterval,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageRaftSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageRaftSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageRaftSpec) Type() string {
@@ -195,6 +267,16 @@ type StorageZooKeeperSpec struct {
 	ZnodeOwner   *SecretKeySelector      `json:"znodeOwner,omitempty"`
 	AuthInfo     *SecretKeySelector      `json:"authInfo,omitempty"`
 	Tls          *StorageZooKeeperTLSpec `json:"tls,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageZooKeeperSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageZooKeeperSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageZooKeeperSpec) Type() string {
@@ -285,6 +367,16 @@ type StorageSwiftSpec struct {
 	Credentials         *SecretSelector             `json:"credentials,omitempty"`
 }
 
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageSwiftSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageSwiftSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
+}
+
 func (s *StorageSwiftSpec) Type() string {
 	return "swift"
 }
@@ -331,6 +423,16 @@ type StorageS3Spec struct {
 	Credentials         *SecretSelector `json:"credentials,omitempty"`
 }
 
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageS3Spec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageS3Spec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
+}
+
 func (s *StorageS3Spec) Type() string {
 	return "s3"
 }
@@ -371,6 +473,16 @@ type StorageOCIObjectStorageSpec struct {
 	HaEnabled      *bool           `json:"haEnabled"`
 	LockBucketName *string         `json:"lockBucketName"`
 	Credentials    *SecretSelector `json:"credentials,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageOCIObjectStorageSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageOCIObjectStorageSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageOCIObjectStorageSpec) Type() string {
@@ -468,12 +580,23 @@ func (s *StoragePostgreSqlAutModeSpec) MapValue() map[string]any {
 
 type StoragePostgreSqlSpec struct {
 	InternalStorageSpec `json:",inline"`
-	ConnectionUrl       *SecretKeySelector            `json:"connectionUrl,omitempty"`
-	AuthMode            *StoragePostgreSqlAutModeSpec `json:"authMode,omitempty"`
-	HaEnabled           *bool                         `json:"haEnabled,omitempty"`
-	HATable             *string                       `json:"haTable,omitempty"`
-	Table               *string                       `json:"table,omitempty"`
-	MaxIdleConnections  *int32                        `json:"maxIdleConnections,omitempty"`
+
+	ConnectionUrl      *SecretKeySelector            `json:"connectionUrl,omitempty"`
+	AuthMode           *StoragePostgreSqlAutModeSpec `json:"authMode,omitempty"`
+	HaEnabled          *bool                         `json:"haEnabled,omitempty"`
+	HATable            *string                       `json:"haTable,omitempty"`
+	Table              *string                       `json:"table,omitempty"`
+	MaxIdleConnections *int32                        `json:"maxIdleConnections,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StoragePostgreSqlSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StoragePostgreSqlSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StoragePostgreSqlSpec) Type() string {
@@ -522,7 +645,11 @@ func (s *StorageDynamoDBCapacitySpec) MapValue() map[string]any {
 }
 
 type StorageDynamoDBSpec struct {
-	InternalStorageSpec  `json:",inline"`
+	InternalStorageSpec `json:",inline"`
+
+	AccessKey            *string                      `json:"-"`
+	SecretKey            *string                      `json:"-"`
+	SessionToken         *string                      `json:"-"`
 	DynamodbAllowUpdates *string                      `json:"dynamodbAllowUpdates,omitempty"`
 	Credentials          *SecretSelector              `json:"credentials,omitempty"`
 	Capacity             *StorageDynamoDBCapacitySpec `json:"capacity,omitempty"`
@@ -532,6 +659,16 @@ type StorageDynamoDBSpec struct {
 	Table                *string                      `json:"table,omitempty"`
 	// +kubebuilder:validation:Enum=PROVISIONED;PAY_PER_REQUEST
 	BillingMode *string `json:"billingMode,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageDynamoDBSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageDynamoDBSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageDynamoDBSpec) Type() string {
@@ -569,7 +706,8 @@ func (s *StorageDynamoDBSpec) MapValue() map[string]any {
 }
 
 type StorageMySqlSpec struct {
-	InternalStorageSpec        `json:",inline"`
+	InternalStorageSpec `json:",inline"`
+
 	Address                    *string               `json:"address"`
 	Credentials                *SecretSelector       `json:"credentials,omitempty"`
 	Database                   *string               `json:"database,omitempty"`
@@ -580,6 +718,16 @@ type StorageMySqlSpec struct {
 	TlsCa                      *ConfigMapKeySelector `json:"tlsCa,omitempty"`
 	HaEnabled                  *bool                 `json:"haEnabled,omitempty"`
 	LockTable                  *string               `json:"lockTable,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageMySqlSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageMySqlSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageMySqlSpec) Type() string {
@@ -620,18 +768,29 @@ func (s *StorageMySqlSpec) MapValue() map[string]any {
 
 type StorageMsSqlSpec struct {
 	InternalStorageSpec `json:",inline"`
-	Server              *string         `json:"server"`
-	Port                *int32          `json:"port,omitempty"`
-	Credentials         *SecretSelector `json:"credentials,omitempty"`
-	Database            *string         `json:"database,omitempty"`
-	Table               *string         `json:"table,omitempty"`
-	Schema              *string         `json:"schema,omitempty"`
-	ConnectionTimeout   *int32          `json:"connectionTimeout,omitempty"`
-	AppName             *string         `json:"appName,omitempty"`
+
+	Server            *string         `json:"server"`
+	Port              *int32          `json:"port,omitempty"`
+	Credentials       *SecretSelector `json:"credentials,omitempty"`
+	Database          *string         `json:"database,omitempty"`
+	Table             *string         `json:"table,omitempty"`
+	Schema            *string         `json:"schema,omitempty"`
+	ConnectionTimeout *int32          `json:"connectionTimeout,omitempty"`
+	AppName           *string         `json:"appName,omitempty"`
 
 	// +kubebuilder:validation:Maximum=63
 	// +kubebuilder:validation:Minimum=0
 	LogLevel *int32 `json:"logLevel,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageMsSqlSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageMsSqlSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageMsSqlSpec) Type() string {
@@ -703,6 +862,8 @@ func (s *StorageEtcdMaxSpec) MapValue() map[string]any {
 }
 
 type StorageEtcdSpec struct {
+	Username         *string                 `json:"-"`
+	Password         *string                 `json:"-"`
 	Address          *string                 `json:"address,omitempty"`
 	DiscoverySrv     *string                 `json:"discoverySrv,omitempty"`
 	DiscoverySrvName *string                 `json:"discoverySrvName,omitempty"`
@@ -714,6 +875,16 @@ type StorageEtcdSpec struct {
 	Max              *StorageEtcdMaxSpec     `json:"max,omitempty"`
 	Credentials      *SecretSelector         `json:"credentials,omitempty"`
 	Tls              *SecretSelector         `json:"tls,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageEtcdSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageEtcdSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageEtcdSpec) Type() string {
@@ -760,11 +931,22 @@ func (s *StorageEtcdSpec) MapValue() map[string]any {
 
 type StorageGoogleCloudSpannerSpec struct {
 	InternalStorageSpec `json:",inline"`
-	Database            *string         `json:"database,omitempty"`
-	Table               *string         `json:"table,omitempty"`
-	HaEnabled           *bool           `json:"haEnabled,omitempty"`
-	HaTable             *string         `json:"haTable,omitempty"`
-	Credentials         *SecretSelector `json:"credentials,omitempty"`
+
+	Database    *string         `json:"database,omitempty"`
+	Table       *string         `json:"table,omitempty"`
+	HaEnabled   *bool           `json:"haEnabled,omitempty"`
+	HaTable     *string         `json:"haTable,omitempty"`
+	Credentials *SecretSelector `json:"credentials,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageGoogleCloudSpannerSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageGoogleCloudSpannerSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageGoogleCloudSpannerSpec) Type() string {
@@ -793,10 +975,21 @@ func (s *StorageGoogleCloudSpannerSpec) MapValue() map[string]any {
 
 type StorageGoogleCloudStorageSpec struct {
 	InternalStorageSpec `json:",inline"`
-	Bucket              *string         `json:"bucket,omitempty"`
-	ChunkSize           *datasize.Size  `json:"chunkSize,omitempty"`
-	HaEnabled           *bool           `json:"haEnabled,omitempty"`
-	Credentials         *SecretSelector `json:"credentials,omitempty"`
+
+	Bucket      *string         `json:"bucket,omitempty"`
+	ChunkSize   *datasize.Size  `json:"chunkSize,omitempty"`
+	HaEnabled   *bool           `json:"haEnabled,omitempty"`
+	Credentials *SecretSelector `json:"credentials,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageGoogleCloudStorageSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageGoogleCloudStorageSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageGoogleCloudStorageSpec) Type() string {
@@ -821,6 +1014,7 @@ func (s *StorageGoogleCloudStorageSpec) MapValue() map[string]any {
 }
 
 type StorageFoundationDbTlsSpec struct {
+	Password    *string         `json:"-"`
 	VerifyPeers *string         `json:"tlsVerifyPeers,omitempty"`
 	Certificate *SecretSelector `json:"certificate,omitempty"`
 }
@@ -840,10 +1034,20 @@ func (s *StorageFoundationDbTlsSpec) MapValue() map[string]any {
 
 type StorageFoundationDbSpec struct {
 	ApiVersion  *int32                      `json:"apiVersion,omitempty"`
-	ClusterFile *ConfigMapKeySelector       `json:"clusterFile,omitempty"`
+	ClusterFile *SecretKeySelector          `json:"clusterFile"`
 	Tls         *StorageFoundationDbTlsSpec `json:"tls,omitempty"`
 	Path        *string                     `json:"path,omitempty"`
 	HaEnabled   *bool                       `json:"haEnabled,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageFoundationDbSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageFoundationDbSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageFoundationDbSpec) Type() string {
@@ -871,8 +1075,8 @@ func (s *StorageFoundationDbSpec) MapValue() map[string]any {
 }
 
 type StorageAerospikeSpec struct {
-	Username    *string
-	Password    *string
+	Username    *string         `json:"-"`
+	Password    *string         `json:"-"`
 	Hostname    *string         `json:"hostname,omitempty"`
 	Port        *int32          `json:"port,omitempty"`
 	HostList    []string        `json:"hostList,omitempty"`
@@ -885,6 +1089,16 @@ type StorageAerospikeSpec struct {
 
 	// +kubebuilder:validation:Enum=INTERNAL;EXTERNAL
 	AuthMode *string `json:"authMode,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageAerospikeSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageAerospikeSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageAerospikeSpec) Type() string {
@@ -929,11 +1143,21 @@ func (s *StorageAerospikeSpec) MapValue() map[string]any {
 
 type StorageAlicloudOssSpec struct {
 	InternalStorageSpec `json:",inline"`
-	AccessKey           *string
-	SecretKey           *string
+	AccessKey           *string         `json:"-"`
+	SecretKey           *string         `json:"-"`
 	Bucket              *string         `json:"bucket,omitempty"`
 	Endpoint            *string         `json:"endpoint,omitempty"`
 	Credentials         *SecretSelector `json:"credentials,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageAlicloudOssSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageAlicloudOssSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageAlicloudOssSpec) Type() string {
@@ -962,12 +1186,22 @@ func (s *StorageAlicloudOssSpec) MapValue() map[string]any {
 
 type StorageAzureSpec struct {
 	InternalStorageSpec `json:",inline"`
-	AccountKey          *string
+	AccountKey          *string         `json:"-"`
 	AccountName         *string         `json:"accountName"`
 	Container           *string         `json:"container"`
 	Environment         *string         `json:"environment,omitempty"`
 	ArmEndpoint         *string         `json:"armEndpoint,omitempty"`
 	Credentials         *SecretSelector `json:"credentials,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageAzureSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageAzureSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageAzureSpec) Type() string {
@@ -1004,7 +1238,10 @@ type PemBundleCassandraSpec struct {
 }
 
 type StorageCassandraSpec struct {
-	InternalStorageSpec      `json:",inline"`
+	InternalStorageSpec `json:",inline"`
+
+	Username                 *string                 `json:"-"`
+	Password                 *string                 `json:"-"`
 	Keyspace                 *string                 `json:"keyspace,omitempty"`
 	Table                    *string                 `json:"table,omitempty"`
 	ProtocolVersion          *int32                  `json:"protocolVersion,omitempty"`
@@ -1023,6 +1260,16 @@ type StorageCassandraSpec struct {
 	Hosts []string `json:"hosts,omitempty"`
 }
 
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageCassandraSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageCassandraSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
+}
+
 func (s *StorageCassandraSpec) Type() string {
 	return "cassandra"
 }
@@ -1032,6 +1279,15 @@ func (s *StorageCassandraSpec) MapValue() map[string]any {
 
 	if len(s.Hosts) > 0 {
 		_m["hosts"] = strconv.Quote(strings.Join(s.Hosts, ","))
+	}
+	if s.Username != nil {
+		_m["username"] = strconv.Quote(*s.Username)
+	}
+	if s.Password != nil {
+		_m["password"] = strconv.Quote(*s.Password)
+	}
+	if s.Keyspace != nil {
+		_m["keyspace"] = strconv.Quote(*s.Keyspace)
 	}
 	if s.Keyspace != nil {
 		_m["keyspace"] = strconv.Quote(*s.Keyspace)
@@ -1076,10 +1332,22 @@ func (s *StorageCassandraSpec) MapValue() map[string]any {
 
 type StorageCockroachDBSpec struct {
 	InternalStorageSpec `json:",inline"`
-	ConnectionUrl       *SecretKeySelector `json:"connectionUrl"`
+
+	ConnectionUrl       *string            `json:"-"`
+	ConnectionUrlSecret *SecretKeySelector `json:"connectionUrl"`
 	Table               *string            `json:"table,omitempty"`
 	HaEnabled           *bool              `json:"haEnabled,omitempty"`
 	HaTable             *string            `json:"haTable,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageCockroachDBSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageCockroachDBSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageCockroachDBSpec) Type() string {
@@ -1109,8 +1377,21 @@ func (s *StorageCockroachDBSpec) MapValue() map[string]any {
 
 type StorageCouchDBSpec struct {
 	InternalStorageSpec `json:",inline"`
-	Endpoint            *string         `json:"endpoint"`
-	Credentials         *SecretSelector `json:"credentials"`
+
+	Username    *string         `json:"-"`
+	Password    *string         `json:"-"`
+	Endpoint    *string         `json:"endpoint"`
+	Credentials *SecretSelector `json:"credentials"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageCouchDBSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageCouchDBSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageCouchDBSpec) Type() string {
@@ -1123,12 +1404,14 @@ func (s *StorageCouchDBSpec) MapValue() map[string]any {
 	if s.Endpoint != nil {
 		_m["endpoint"] = strconv.Quote(*s.Endpoint)
 	}
+	if s.Username != nil {
+		_m["username"] = strconv.Quote(*s.Username)
+	}
+	if s.Password != nil {
+		_m["password"] = strconv.Quote(*s.Password)
+	}
 	if s.MaxParallel != nil {
 		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	if s.Credentials != nil {
-		_m["username"] = strconv.Quote("TODO")
-		_m["password"] = strconv.Quote("TODO")
 	}
 	return _m
 }
@@ -1136,11 +1419,22 @@ func (s *StorageCouchDBSpec) MapValue() map[string]any {
 type StorageConsulSpec struct {
 	InternalStorageSpec `json:",inline"`
 	ConsulSpec          `json:",inline"`
-	Path                *string          `json:"path,omitempty"`
-	SessionTTL          *metav1.Duration `json:"sessionTtl,omitempty"`
-	LockWaitTime        *metav1.Duration `json:"lockWaitTime,omitempty"`
+
+	Path         *string          `json:"path,omitempty"`
+	SessionTTL   *metav1.Duration `json:"sessionTtl,omitempty"`
+	LockWaitTime *metav1.Duration `json:"lockWaitTime,omitempty"`
 	// +kubebuilder:validation:Enum=default;strong
 	ConsistencyMode *string `json:"consistencyMode,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageConsulSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageConsulSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageConsulSpec) Type() string {
@@ -1169,7 +1463,18 @@ func (s *StorageConsulSpec) MapValue() map[string]any {
 	return _m
 }
 
-type StorageInMemSpec struct{}
+type StorageInMemSpec struct {
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageInMemSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageInMemSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
+}
 
 func (s *StorageInMemSpec) Type() string {
 	return "inmem"
@@ -1181,6 +1486,16 @@ func (s *StorageInMemSpec) MapValue() map[string]any {
 
 type StorageFileSystemSpec struct {
 	Path string `json:"-"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageFileSystemSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageFileSystemSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageFileSystemSpec) Type() string {
@@ -1201,6 +1516,16 @@ type StorageMantaSpec struct {
 	SubUser             *string `json:"subUser"`
 	URL                 *string `json:"url"`
 	//TODO:AddSSHKeyForAgent
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *StorageMantaSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *StorageMantaSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *StorageMantaSpec) Type() string {

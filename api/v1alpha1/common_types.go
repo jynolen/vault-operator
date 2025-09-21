@@ -1,12 +1,16 @@
 package v1alpha1
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"strconv"
 	"strings"
 
+	// "github.com/jynolen/vault-operator/internal/controller"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type DataReference struct {
@@ -64,6 +68,7 @@ func (s *ConsulTlsSpec) MapValue() map[string]any {
 }
 
 type ConsulSpec struct {
+	Token               *string            `json:"-"`
 	Address             *string            `json:"address,omitempty"`
 	CheckTimeout        *metav1.Duration   `json:"checkTimeout,omitempty"`
 	DisableRegistration *bool              `json:"disableRegistration,omitempty"`
@@ -71,7 +76,7 @@ type ConsulSpec struct {
 	ServiceTags         []string           `json:"serviceTags,omitempty"`
 	ServiceMeta         map[string]string  `json:"serviceMeta,omitempty"`
 	ServiceAddress      *string            `json:"serviceAddress,omitempty"`
-	Token               *SecretKeySelector `json:"clientCert"`
+	TokenSecret         *SecretKeySelector `json:"clientCert"`
 	Tls                 *ConsulTlsSpec     `json:"tls,omitempty"`
 
 	// +kubebuilder:validation:Enum=http;https
@@ -108,7 +113,7 @@ func (s *ConsulSpec) MapValue() map[string]any {
 	if s.ServiceAddress != nil {
 		_m["service_address"] = strconv.Quote(*s.ServiceAddress)
 	}
-	if s.Token != nil {
+	if s.TokenSecret != nil {
 		_m["token"] = strconv.Quote("TODO")
 	}
 	if s.Tls != nil {
@@ -122,7 +127,9 @@ func (s *ConsulSpec) MapValue() map[string]any {
 // +k8s:deepcopy-gen:interfaces=nil
 // +k8s:deepcopy-gen=nil
 
-type HclHelper interface {
+type ConfigBuilderHelper interface {
 	Type() string
 	MapValue() map[string]any
+	Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error)
+	Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error
 }

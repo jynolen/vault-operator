@@ -43,3 +43,21 @@ tasks:
       - deps:go:k8s:install
     cmds:
       - "{{ .LOCALBIN }}/kubectl delete --ignore-not-found=false -k {{ .USER_WORKING_DIR }}/config/default"
+
+  _sample:create:
+    internal: true
+    cmd: "{{ .LOCALBIN }}/kubectl create -k {{ .USER_WORKING_DIR }}/config/samples"
+    status:
+    - "{{ .LOCALBIN }}/kubectl get -k { .USER_WORKING_DIR }}/config/samples || true" 
+
+  _sample:replace:
+    internal: true
+    cmd: "{{ .LOCALBIN }}/kubectl replace -k {{ .USER_WORKING_DIR }}/config/samples"
+    status:
+    - "{{ .LOCALBIN }}/kubectl get -k { .USER_WORKING_DIR }}/config/samples && false"
+
+  samples:
+    desc: Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+    cmds:
+      - task: _sample:create
+      - task: _sample:replace

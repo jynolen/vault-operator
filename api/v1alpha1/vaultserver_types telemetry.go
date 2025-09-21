@@ -50,14 +50,14 @@ type TelemetrySpec struct {
 	Prometheus  *PrometheusSpec  `json:"prometheus,omitempty"`
 }
 
-func (s *TelemetrySpec) InternalTelemetry() []HclHelper {
+func (s *TelemetrySpec) InternalTelemetry() []ConfigBuilderHelper {
 	v, t := reflect.ValueOf(*s), reflect.TypeOf(*s)
-	reSlice := make([]HclHelper, 0)
+	reSlice := make([]ConfigBuilderHelper, 0)
 
 	for i := range t.NumField() {
 		intf := v.Field(i)
 		if !intf.IsNil() {
-			reSlice = append(reSlice, intf.Interface().(HclHelper))
+			reSlice = append(reSlice, intf.Interface().(ConfigBuilderHelper))
 		}
 	}
 	return reSlice
@@ -140,8 +140,8 @@ func (s *StatsdSpec) MapValue() map[string]any {
 }
 
 type CirconusSpec struct {
-	ApiToken                   *string
-	ApiApp                     *string
+	ApiToken                   *string          `json:"-"`
+	ApiApp                     *string          `json:"-"`
 	Credentials                SecretSelector   `json:"credentials"`
 	ApiURL                     *string          `json:"apiUrl"`
 	SubmissionInterval         *metav1.Duration `json:"submissionInterval"`

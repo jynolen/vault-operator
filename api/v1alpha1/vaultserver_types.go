@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/jynolen/vault-operator/internal/utils"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -42,6 +43,11 @@ type VaultServer struct {
 
 	Spec   VaultServerSpec   `json:"spec"`
 	Status VaultServerStatus `json:"status,omitempty"`
+}
+
+func (v *VaultServer) Volumes() ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes, volumeMounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	return volumes, volumeMounts, nil
 }
 
 type VaultServerSpec struct {

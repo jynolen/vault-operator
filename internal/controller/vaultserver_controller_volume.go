@@ -39,6 +39,33 @@ func (r *VaultServerReconciler) listenerTcpTlsVolume(ctx context.Context, vaultS
 	return volume, volumeMount, nil
 }
 
+func (r *VaultServerReconciler) storageEtcdTlsVolume(ctx context.Context, vaultServer *v1alpha1.VaultServer) (*corev1.Volume, *corev1.VolumeMount, error) {
+	if vaultServer.Spec.Config.Storage.Etcd.Tls == nil {
+		return nil, nil, nil
+	}
+	var secret corev1.Secret
+	if err := r.Get(ctx, types.NamespacedName{Name: vaultServer.Spec.Config.Storage.Etcd.Tls.SecretRef.Name, Namespace: vaultServer.Namespace}, &secret); err != nil {
+		return nil, nil, err
+	}
+	if secret.Type != corev1.SecretTypeTLS {
+		return nil, nil, errors.New("Storage.Etcd.Tls SecretType is not a kubernetes.io/tls")
+	}
+	volume := &corev1.Volume{
+		Name: "storage-etcd-tls",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: vaultServer.Spec.Config.Storage.Etcd.Tls.SecretRef.Name,
+			},
+		},
+	}
+	volumeMount := &corev1.VolumeMount{
+		Name:      "storage-etcd-tls",
+		ReadOnly:  true,
+		MountPath: "/etcd",
+	}
+	return volume, volumeMount, nil
+}
+
 func (r *VaultServerReconciler) storageRaftLeaderTlsVolume(ctx context.Context, vaultServer *v1alpha1.VaultServer) ([]*corev1.Volume, []*corev1.VolumeMount, error) {
 	mounts, volumes := []*corev1.VolumeMount{}, []*corev1.Volume{}
 
@@ -71,6 +98,65 @@ func (r *VaultServerReconciler) storageRaftLeaderTlsVolume(ctx context.Context, 
 			MountPath: fmt.Sprintf("/raft/retry/%x", hash),
 		})
 	}
+	return volumes, mounts, nil
+}
+
+func (r *VaultServerReconciler) storageFoundationDbVolume(ctx context.Context, vaultServer *v1alpha1.VaultServer) ([]*corev1.Volume, []*corev1.VolumeMount, error) {
+	mounts, volumes := []*corev1.VolumeMount{}, []*corev1.Volume{}
+	foundationDB := vaultServer.Spec.Config.Storage.FoundationDb
+
+	if foundationDB == nil {
+		return volumes, mounts, nil
+	}
+
+	if foundationDB.Tls.Certificate == nil {
+		var secret corev1.Secret
+		if err := r.Get(ctx, types.NamespacedName{Name: foundationDB.Tls.Certificate.SecretRef.Name, Namespace: vaultServer.Namespace}, &secret); err != nil {
+			return nil, nil, err
+		}
+		if secret.Type != corev1.SecretTypeTLS {
+			return nil, nil, errors.New("ListenerTCP.TLS SecretType is not a kubernetes.io/tls")
+		}
+		volumes = append(volumes, &corev1.Volume{
+			Name: "storage-foundationdb-tls",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: foundationDB.Tls.Certificate.SecretRef.Name,
+				},
+			},
+		})
+		mounts = append(mounts, &corev1.VolumeMount{
+			Name:      "storage-foundationdb-tls",
+			ReadOnly:  true,
+			MountPath: "/foundationdb/tls",
+		})
+	}
+	var secret corev1.Secret
+	if err := r.Get(ctx, types.NamespacedName{Name: foundationDB.ClusterFile.SecretRef.Name, Namespace: vaultServer.Namespace}, &secret); err != nil {
+		return nil, nil, err
+	}
+	if secret.Type != corev1.SecretTypeOpaque {
+		return nil, nil, errors.New("FoundationDb.ClusterFile SecretType is not a Opaque")
+	}
+	volumes = append(volumes, &corev1.Volume{
+		Name: "storage-foundation-cluster-file",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: foundationDB.ClusterFile.SecretRef.Name,
+				Items: []corev1.KeyToPath{corev1.KeyToPath{
+					Key:  foundationDB.ClusterFile.SecretRef.Key,
+					Path: "fdb.cluster",
+				}},
+			},
+		},
+	})
+	mounts = append(mounts, &corev1.VolumeMount{
+		Name:      "storage-foundation-cluster-file",
+		ReadOnly:  true,
+		MountPath: "/foundation/fdb.cluster",
+		SubPath:   "fdb.cluster",
+	})
+
 	return volumes, mounts, nil
 }
 

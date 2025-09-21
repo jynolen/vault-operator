@@ -17,9 +17,16 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
+	"fmt"
 	"maps"
-	"reflect"
 	"strconv"
+
+	"github.com/jynolen/vault-operator/internal/utils"
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // #region SealSpec
@@ -37,15 +44,24 @@ type SealSpec struct {
 	Transit       *SealTransitSpec       `json:"transit,omitempty"`
 }
 
-func (s *StorageSpec) InternalSeal() HclHelper {
-	v := reflect.ValueOf(*s)
-	t := reflect.TypeOf(*s)
-
-	for i := range t.NumField() {
-		intf := v.Field(i)
-		if !intf.IsNil() {
-			return intf.Interface().(HclHelper)
-		}
+func (s *SealSpec) InternalSeal() ConfigBuilderHelper {
+	if s.AliCloudKms != nil {
+		return s.AliCloudKms
+	}
+	if s.AWSKms != nil {
+		return s.AWSKms
+	}
+	if s.AzureKeyVault != nil {
+		return s.AzureKeyVault
+	}
+	if s.GCPKms != nil {
+		return s.GCPKms
+	}
+	if s.PKCS11 != nil {
+		return s.PKCS11
+	}
+	if s.Transit != nil {
+		return s.Transit
 	}
 	return nil
 }
@@ -57,11 +73,36 @@ type InternalSealSpec struct {
 
 type SealAliCloudKmsSpec struct {
 	InternalSealSpec `json:",inline"`
-	AccessKey        *string
-	SecretKey        *string
+	AccessKey        *string `json:"-"`
+	SecretKey        *string `json:"-"`
 	Region           *string `json:"region,omitempty"`
 	Domain           *string `json:"domain,omitempty"`
 	KmsKeyId         *string `json:"kmsKeyId"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *SealAliCloudKmsSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := map[string]utils.KvMapping{
+		"access_key": {Dest: s.AccessKey, Mandatory: true},
+		"secret_key": {Dest: s.SecretKey, Mandatory: true},
+	}
+	for k, v := range secretMappings {
+		if err := utils.MapSecret(&secret, "SealAliCloudKmsSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+			return err
+		}
+	}
+	return nil
+
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *SealAliCloudKmsSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *SealAliCloudKmsSpec) Type() string {
@@ -93,12 +134,37 @@ func (s *SealAliCloudKmsSpec) MapValue() map[string]any {
 
 type SealAwsKmsSpec struct {
 	InternalSealSpec `json:",inline"`
-	AccessKey        *string
-	SecretKey        *string
-	SessionToken     *string
+	AccessKey        *string `json:"-"`
+	SecretKey        *string `json:"-"`
+	SessionToken     *string `json:"-"`
 	Region           *string `json:"region,omitempty"`
 	Endpoint         *string `json:"endpoint,omitempty"`
 	KmsKeyId         *string `json:"kmsKeyId"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *SealAwsKmsSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := map[string]utils.KvMapping{
+		"access_key":    {Dest: s.AccessKey, Mandatory: true},
+		"secret_key":    {Dest: s.SecretKey, Mandatory: true},
+		"session_token": {Dest: s.SessionToken},
+	}
+	for k, v := range secretMappings {
+		if err := utils.MapSecret(&secret, "SealAwsKmsSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *SealAwsKmsSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *SealAwsKmsSpec) Type() string {
@@ -133,14 +199,39 @@ func (s *SealAwsKmsSpec) MapValue() map[string]any {
 
 type SealAzureKeyVaultSpec struct {
 	InternalSealSpec `json:",inline"`
-	TenantID         *string
-	ClientID         *string
-	ClientSecret     *string
-	SessionToken     *string
+	TenantID         *string `json:"-"`
+	ClientID         *string `json:"-"`
+	ClientSecret     *string `json:"-"`
+	SessionToken     *string `json:"-"`
 	Environment      *string `json:"environment,omitempty"`
 	VaultName        *string `json:"vaultName"`
 	KeyName          *string `json:"keyName"`
 	Resource         *string `json:"resource,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *SealAzureKeyVaultSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := map[string]utils.KvMapping{
+		"client_id":     {Dest: s.ClientID, Mandatory: true},
+		"client_secret": {Dest: s.ClientSecret, Mandatory: true},
+		"tenant_id":     {Dest: s.TenantID, Mandatory: true},
+	}
+	for k, v := range secretMappings {
+		if err := utils.MapSecret(&secret, "SealAzureKeyVaultSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *SealAzureKeyVaultSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *SealAzureKeyVaultSpec) Type() string {
@@ -173,6 +264,28 @@ type SealGcpKmsSpec struct {
 	Region           *string `json:"region"`
 	KeyRing          *string `json:"keyRing"`
 	CryptoKey        *string `json:"cryptoKey"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *SealGcpKmsSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	if secret.Type != corev1.SecretTypeOpaque {
+		return fmt.Errorf("%s is not Opaque", secret.Name)
+	}
+	_, ok := secret.Data["credentials.json"]
+	if !ok {
+		return fmt.Errorf("%s does not contains key `credentials.json`", secret.Name)
+	}
+	return nil
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *SealGcpKmsSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *SealGcpKmsSpec) Type() string {
@@ -236,7 +349,7 @@ func (s *SealOciKmsSpec) MapValue() map[string]any {
 }
 
 type SealPKCS11Spec struct {
-	Pin                 *string
+	Pin                 *string            `json:"-"`
 	Lib                 *string            `json:"lib"`
 	Slot                *string            `json:"slot"`
 	TokenLabel          *string            `json:"tokenLabel"`
@@ -258,6 +371,30 @@ type SealPKCS11Spec struct {
 	Mechanism *string `json:"mechanism,omitempty"`
 	// +kubebuilder:validation:Enum="0x0251"
 	HMACMechanism *string `json:"hmacMechanism,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *SealPKCS11Spec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	t := types.NamespacedName{Name: pkcs11.PinSecret.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := map[string]utils.KvMapping{
+		"pin": {Dest: s.Pin, Mandatory: true},
+	}
+	for k, v := range secretMappings {
+		if err := utils.MapSecret(&secret, "SealPKCS11Spec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+			return err
+		}
+	}
+	return nil
+
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *SealPKCS11Spec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *SealPKCS11Spec) Type() string {
@@ -350,7 +487,7 @@ func (s *TlsTransitSpec) MapValue() map[string]any {
 
 type SealTransitSpec struct {
 	InternalSealSpec `json:",inline"`
-	Token            *string
+	Token            *string         `json:"-"`
 	KeyName          *string         `json:"keyName"`
 	Address          *string         `json:"address"`
 	KeyIdPrefix      *string         `json:"keyIdPrefix,omitempty"`
@@ -358,6 +495,16 @@ type SealTransitSpec struct {
 	Namespace        *string         `json:"namespace,omitempty"`
 	DisableRenewal   *bool           `json:"disableRenewal,omitempty"`
 	Tls              *TlsTransitSpec `json:"tls,omitempty"`
+}
+
+// Secrets implements ConfigBuilderHelper.
+func (s *SealTransitSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	panic("unimplemented")
+}
+
+// Volumes implements ConfigBuilderHelper.
+func (s *SealTransitSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
+	panic("unimplemented")
 }
 
 func (s *SealTransitSpec) Type() string {

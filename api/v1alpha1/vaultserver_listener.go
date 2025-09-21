@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/url"
@@ -24,8 +26,11 @@ import (
 	"strings"
 
 	"github.com/jynolen/vault-operator/internal/utils"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"kythe.io/kythe/go/util/datasize"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // +kubebuilder:validation:Pattern=([12345][\dx][\dx])|(default)
@@ -72,7 +77,7 @@ func (l *ListenerTCPSpec) ClusterAddress() *url.URL {
 	return &url.URL{Host: "127.0.0.1:8201"}
 }
 
-func (l *ListenerTCPSpec) MapValue() map[string]string {
+func (l *ListenerTCPSpec) MapValue() map[string]any {
 	_m := map[string]string{
 		"address":      strconv.Quote(fmt.Sprintf("%s:%s", l.Address().Hostname(), l.Address().Port())),
 		"cluster_addr": strconv.Quote(fmt.Sprintf("%s:%s", l.ClusterAddress().Hostname(), l.ClusterAddress().Port())),
@@ -114,7 +119,11 @@ func (l *ListenerTCPSpec) MapValue() map[string]string {
 	if l.Redact != nil {
 		maps.Copy(_m, l.Redact.MapValue())
 	}
-	return _m
+	s := make(map[string]any, len(_m))
+	for i, v := range _m {
+		s[i] = v
+	}
+	return s
 }
 
 func (l *ListenerTCPSpec) Blocks() map[string]map[string]string {
@@ -136,6 +145,37 @@ func (l *ListenerTCPSpec) Blocks() map[string]map[string]string {
 		}
 	}
 	return _m
+}
+
+func (l *ListenerTCPSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
+	return nil
+}
+
+func (l *ListenerTCPSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	if l.TLS.Cert == nil {
+		return nil, nil, nil
+	}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, types.NamespacedName{Name: vaultServer.Spec.Config.ListenerTcp.TLS.Cert.SecretRef.Name, Namespace: vaultServer.Namespace}, &secret); err != nil {
+		return nil, nil, err
+	}
+	if secret.Type != corev1.SecretTypeTLS {
+		return nil, nil, errors.New("ListenerTCP.TLS SecretType is not a kubernetes.io/tls")
+	}
+	volume := &corev1.Volume{
+		Name: "listenertcp-tls",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: vaultServer.Spec.Config.ListenerTcp.TLS.Cert.SecretRef.Name,
+			},
+		},
+	}
+	volumeMount := &corev1.VolumeMount{
+		Name:      "listenertcp-tls",
+		ReadOnly:  true,
+		MountPath: "/tls",
+	}
+	return []corev1.Volume{*volume}, []corev1.VolumeMount{*volumeMount}, nil
 }
 
 type ListernerMaxRequestLimitSpec struct {

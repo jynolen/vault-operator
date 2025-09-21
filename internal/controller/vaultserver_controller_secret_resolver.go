@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jynolen/vault-operator/api/v1alpha1"
+	"github.com/jynolen/vault-operator/internal/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -17,26 +18,6 @@ func (r *VaultServerReconciler) resolveSecret(ctx context.Context, vaultServer *
 	return nil
 }
 
-func mapSecret(secret *corev1.Secret, name, src_key string, dest_key *string, mandatory ...bool) error {
-	if secret.Type != corev1.SecretTypeOpaque {
-		return fmt.Errorf("%s is not Opaque", name)
-	}
-	val, ok := secret.Data[src_key]
-	if !ok {
-		if len(mandatory) > 0 && mandatory[0] {
-			return fmt.Errorf("%s does not contains key `%s`", name, src_key)
-		}
-		return nil
-	}
-	*dest_key = string(val)
-	return nil
-}
-
-type kvMapping struct {
-	Dest      *string
-	Mandatory bool
-}
-
 func (r *VaultServerReconciler) telemetryCirconus(ctx context.Context, vaultServer *v1alpha1.VaultServer, circonus *v1alpha1.CirconusSpec) error {
 	if circonus == nil {
 		return nil
@@ -46,86 +27,14 @@ func (r *VaultServerReconciler) telemetryCirconus(ctx context.Context, vaultServ
 	if err := r.Get(ctx, t, &secret); err != nil {
 		return err
 	}
-	secretMappings := map[string]kvMapping{
-		"api_token": kvMapping{Dest: circonus.ApiToken, Mandatory: true},
-		"api_app":   kvMapping{Dest: circonus.ApiApp},
+	secretMappings := map[string]utils.KvMapping{
+		"api_token": utils.KvMapping{Dest: circonus.ApiToken, Mandatory: true},
+		"api_app":   utils.KvMapping{Dest: circonus.ApiApp},
 	}
 	for k, v := range secretMappings {
-		if err := mapSecret(&secret, "TelemetryCirconus.Credentials", k, v.Dest, v.Mandatory); err != nil {
+		if err := utils.MapSecret(&secret, "TelemetryCirconus.Credentials", k, v.Dest, v.Mandatory); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func (r *VaultServerReconciler) sealAWSKMS(ctx context.Context, vaultServer *v1alpha1.VaultServer, awsKms *v1alpha1.SealAwsKmsSpec) error {
-	t := types.NamespacedName{Name: awsKms.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
-	var secret corev1.Secret
-	if err := r.Get(ctx, t, &secret); err != nil {
-		return err
-	}
-	secretMappings := map[string]kvMapping{
-		"access_key":    {Dest: awsKms.AccessKey, Mandatory: true},
-		"secret_key":    {Dest: awsKms.SecretKey, Mandatory: true},
-		"session_token": {Dest: awsKms.SessionToken},
-	}
-	for k, v := range secretMappings {
-		if err := mapSecret(&secret, "SealAwsKmsSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (r *VaultServerReconciler) sealAliCloudKMS(ctx context.Context, vaultServer *v1alpha1.VaultServer, aliCloudKms *v1alpha1.SealAliCloudKmsSpec) error {
-	t := types.NamespacedName{Name: aliCloudKms.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
-	var secret corev1.Secret
-	if err := r.Get(ctx, t, &secret); err != nil {
-		return err
-	}
-	secretMappings := map[string]kvMapping{
-		"access_key": {Dest: aliCloudKms.AccessKey, Mandatory: true},
-		"secret_key": {Dest: aliCloudKms.SecretKey, Mandatory: true},
-	}
-	for k, v := range secretMappings {
-		if err := mapSecret(&secret, "SealAliCloudKmsSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (r *VaultServerReconciler) sealAzureKeyVault(ctx context.Context, vaultServer *v1alpha1.VaultServer, azureKeyVault *v1alpha1.SealAzureKeyVaultSpec) error {
-	t := types.NamespacedName{Name: azureKeyVault.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
-	var secret corev1.Secret
-	if err := r.Get(ctx, t, &secret); err != nil {
-		return err
-	}
-	secretMappings := map[string]kvMapping{
-		"client_id":     {Dest: azureKeyVault.ClientID, Mandatory: true},
-		"client_secret": {Dest: azureKeyVault.ClientSecret, Mandatory: true},
-		"tenant_id":     {Dest: azureKeyVault.TenantID, Mandatory: true},
-	}
-	for k, v := range secretMappings {
-		if err := mapSecret(&secret, "SealAzureKeyVaultSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (r *VaultServerReconciler) sealGCP(ctx context.Context, vaultServer *v1alpha1.VaultServer, azureKeyVault *v1alpha1.SealAzureKeyVaultSpec) error {
-	t := types.NamespacedName{Name: azureKeyVault.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
-	var secret corev1.Secret
-	if err := r.Get(ctx, t, &secret); err != nil {
-		return err
-	}
-	if secret.Type != corev1.SecretTypeOpaque {
-		return fmt.Errorf("%s is not Opaque", secret.Name)
-	}
-	_, ok := secret.Data["credentials.json"]
-	if !ok {
-		return fmt.Errorf("%s does not contains key `credentials.json`", secret.Name)
 	}
 	return nil
 }
@@ -146,34 +55,17 @@ func (r *VaultServerReconciler) sealOCI(ctx context.Context, vaultServer *v1alph
 	return nil
 }
 
-func (r *VaultServerReconciler) sealPKCS11(ctx context.Context, vaultServer *v1alpha1.VaultServer, pkcs11 *v1alpha1.SealPKCS11Spec) error {
-	t := types.NamespacedName{Name: pkcs11.PinSecret.SecretRef.Name, Namespace: vaultServer.Namespace}
-	var secret corev1.Secret
-	if err := r.Get(ctx, t, &secret); err != nil {
-		return err
-	}
-	secretMappings := map[string]kvMapping{
-		"pin": {Dest: pkcs11.Pin, Mandatory: true},
-	}
-	for k, v := range secretMappings {
-		if err := mapSecret(&secret, "SealPKCS11Spec.Credentials", k, v.Dest, v.Mandatory); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (r *VaultServerReconciler) sealTransit(ctx context.Context, vaultServer *v1alpha1.VaultServer, transit *v1alpha1.SealTransitSpec) error {
 	t := types.NamespacedName{Name: transit.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
 	var secret corev1.Secret
 	if err := r.Get(ctx, t, &secret); err != nil {
 		return err
 	}
-	secretMappings := map[string]kvMapping{
+	secretMappings := map[string]utils.KvMapping{
 		"token": {Dest: transit.Token, Mandatory: true},
 	}
 	for k, v := range secretMappings {
-		if err := mapSecret(&secret, "SealTransitSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+		if err := utils.MapSecret(&secret, "SealTransitSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
 			return err
 		}
 	}
@@ -189,12 +81,158 @@ func (r *VaultServerReconciler) storageAerospikeSpec(ctx context.Context, vaultS
 	if err := r.Get(ctx, t, &secret); err != nil {
 		return err
 	}
-	secretMappings := map[string]kvMapping{
+	secretMappings := map[string]utils.KvMapping{
 		"username": {Dest: aerospike.Username, Mandatory: true},
 		"password": {Dest: aerospike.Password, Mandatory: true},
 	}
 	for k, v := range secretMappings {
-		if err := mapSecret(&secret, "StorageAerospikeSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+		if err := utils.MapSecret(&secret, "StorageAerospikeSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *VaultServerReconciler) storageCassandraSpec(ctx context.Context, vaultServer *v1alpha1.VaultServer, cassandra *v1alpha1.StorageCassandraSpec) error {
+	if cassandra == nil {
+		return nil
+	}
+	t := types.NamespacedName{Name: cassandra.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := r.Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := map[string]utils.KvMapping{
+		"username": {Dest: cassandra.Username, Mandatory: true},
+		"password": {Dest: cassandra.Password, Mandatory: true},
+	}
+	for k, v := range secretMappings {
+		if err := utils.MapSecret(&secret, "StorageCassandraSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *VaultServerReconciler) storageCockroachDBSpec(ctx context.Context, vaultServer *v1alpha1.VaultServer, coachroachdb *v1alpha1.StorageCockroachDBSpec) error {
+	if coachroachdb == nil {
+		return nil
+	}
+	t := types.NamespacedName{Name: coachroachdb.ConnectionUrlSecret.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := r.Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := map[string]utils.KvMapping{
+		"connection_url": {Dest: coachroachdb.ConnectionUrl, Mandatory: true},
+	}
+	for k, v := range secretMappings {
+		if err := utils.MapSecret(&secret, "StorageCockroachDBSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *VaultServerReconciler) storageConsulSpec(ctx context.Context, vaultServer *v1alpha1.VaultServer, consul *v1alpha1.StorageConsulSpec) error {
+	if consul == nil {
+		return nil
+	}
+	t := types.NamespacedName{Name: consul.TokenSecret.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := r.Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := map[string]utils.KvMapping{
+		"token": {Dest: consul.Token, Mandatory: true},
+	}
+	for k, v := range secretMappings {
+		if err := utils.MapSecret(&secret, "StorageConsulSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *VaultServerReconciler) storageCouchDBSpec(ctx context.Context, vaultServer *v1alpha1.VaultServer, couchdb *v1alpha1.StorageCouchDBSpec) error {
+	if couchdb == nil {
+		return nil
+	}
+	t := types.NamespacedName{Name: couchdb.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := r.Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := map[string]utils.KvMapping{
+		"username": {Dest: couchdb.Username, Mandatory: true},
+		"password": {Dest: couchdb.Password, Mandatory: true},
+	}
+	for k, v := range secretMappings {
+		if err := utils.MapSecret(&secret, "StorageCouchDBSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *VaultServerReconciler) storageEtcdSpec(ctx context.Context, vaultServer *v1alpha1.VaultServer, etcd *v1alpha1.StorageEtcdSpec) error {
+	if etcd == nil {
+		return nil
+	}
+	t := types.NamespacedName{Name: etcd.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := r.Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := map[string]utils.KvMapping{
+		"username": {Dest: etcd.Username, Mandatory: true},
+		"password": {Dest: etcd.Password, Mandatory: true},
+	}
+	for k, v := range secretMappings {
+		if err := utils.MapSecret(&secret, "StorageEtcdSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *VaultServerReconciler) StorageFoundationDbSpec(ctx context.Context, vaultServer *v1alpha1.VaultServer, foundationdb *v1alpha1.StorageFoundationDbSpec) error {
+	if foundationdb == nil || foundationdb.Tls.Certificate == nil {
+		return nil
+	}
+	t := types.NamespacedName{Name: foundationdb.Tls.Certificate.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := r.Get(ctx, t, &secret); err != nil {
+		return err
+	}
+
+	secretMappings := map[string]utils.KvMapping{
+		"tls_password": {Dest: foundationdb.Tls.Password, Mandatory: false},
+	}
+	for k, v := range secretMappings {
+		if err := utils.MapSecret(&secret, "StorageFoundationDbSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *VaultServerReconciler) storageDynamoDBSpec(ctx context.Context, vaultServer *v1alpha1.VaultServer, dynamodb *v1alpha1.StorageDynamoDBSpec) error {
+	if dynamodb == nil {
+		return nil
+	}
+	t := types.NamespacedName{Name: dynamodb.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := r.Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := map[string]utils.KvMapping{
+		"access_key":    {Dest: dynamodb.AccessKey, Mandatory: true},
+		"secret_key":    {Dest: dynamodb.SecretKey, Mandatory: true},
+		"session_token": {Dest: dynamodb.SessionToken},
+	}
+	for k, v := range secretMappings {
+		if err := utils.MapSecret(&secret, "StorageDynamoDBSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
 			return err
 		}
 	}
@@ -210,12 +248,12 @@ func (r *VaultServerReconciler) storageAlicloudOss(ctx context.Context, vaultSer
 	if err := r.Get(ctx, t, &secret); err != nil {
 		return err
 	}
-	secretMappings := map[string]kvMapping{
+	secretMappings := map[string]utils.KvMapping{
 		"access_key": {Dest: aliCloudOss.AccessKey, Mandatory: true},
 		"secret_key": {Dest: aliCloudOss.SecretKey, Mandatory: true},
 	}
 	for k, v := range secretMappings {
-		if err := mapSecret(&secret, "StorageAlicloudOssSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+		if err := utils.MapSecret(&secret, "StorageAlicloudOssSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
 			return err
 		}
 	}
@@ -231,11 +269,11 @@ func (r *VaultServerReconciler) storageAzureSpec(ctx context.Context, vaultServe
 	if err := r.Get(ctx, t, &secret); err != nil {
 		return err
 	}
-	secretMappings := map[string]kvMapping{
+	secretMappings := map[string]utils.KvMapping{
 		"accountKey": {Dest: azure.AccountKey, Mandatory: true},
 	}
 	for k, v := range secretMappings {
-		if err := mapSecret(&secret, "StorageAzureSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
+		if err := utils.MapSecret(&secret, "StorageAzureSpec.Credentials", k, v.Dest, v.Mandatory); err != nil {
 			return err
 		}
 	}

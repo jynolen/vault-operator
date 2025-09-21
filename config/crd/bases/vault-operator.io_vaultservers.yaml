@@ -1308,7 +1308,7 @@ spec:
                             type: integer
                           clusterFile:
                             properties:
-                              configMapRef:
+                              secretKeyRef:
                                 properties:
                                   key:
                                     type: string
@@ -1321,7 +1321,7 @@ spec:
                                 - name
                                 type: object
                             required:
-                            - configMapRef
+                            - secretKeyRef
                             type: object
                           haEnabled:
                             type: boolean
@@ -1346,6 +1346,8 @@ spec:
                               tlsVerifyPeers:
                                 type: string
                             type: object
+                        required:
+                        - clusterFile
                         type: object
                       googleCloudSpanner:
                         properties:

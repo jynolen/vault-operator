@@ -50,14 +50,14 @@ type ServiceRegistrationSpec struct {
 	Kubernetes *ServiceRegistrationKubernetesSpec `json:"kubernetes"`
 }
 
-func (s *ServiceRegistrationSpec) InternalServiceRegistration() HclHelper {
+func (s *ServiceRegistrationSpec) InternalServiceRegistration() ConfigBuilderHelper {
 	v := reflect.ValueOf(*s)
 	t := reflect.TypeOf(*s)
 
 	for i := range t.NumField() {
 		intf := v.Field(i)
 		if !intf.IsNil() {
-			return intf.Interface().(HclHelper)
+			return intf.Interface().(ConfigBuilderHelper)
 		}
 	}
 	return nil
