@@ -2,19 +2,27 @@
 {{ $key }} = {{ $val }}
 {{ end}}
 
-{{ with .Storage.InternalStorage }}
+{{ with .Storage }}
 storage "{{ .Type }}" {
     {{ range $key,$val := .MapValue }}
+        {{ if $val | typeIs "map[string]string" }}
+    {{ $key }} = { 
+            {{ range $k,$v := $val }}
+        {{ $k }} = {{ $v }}
+            {{ end }}
+    }
+        {{ else }}
     {{ $key }} = {{ $val }}
-    {{ end}}
+        {{ end }}
+    {{ end }}
     {{ if eq .Type "raft" }}
-        {{ range .RetryJoin }}  
+        {{ range .Raft.RetryJoin }}  
     retry_join {
             {{ range $key,$val := .MapValue }}
         {{ $key }} = {{ $val }}
-            {{ end}}
+            {{ end }}
     }
-        {{ end}}
+        {{ end }}
     {{ end }}
 }
 {{ end }}

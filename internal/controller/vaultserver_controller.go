@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	_ "embed"
 	"fmt"
@@ -34,7 +33,7 @@ import (
 )
 
 const (
-	// typeAvailableMemcached represents the status of the Deployment reconciliation
+	// typeAvailableMemcached represents the status of the Deployment reconciliation.
 	typeAvailableVaultServer = "Available"
 	// typeDegradedMemcached represents the status used when the custom resource is deleted and the finalizer operations are yet to occur.
 	typeDegradedVaultServer = "Degraded"
@@ -44,10 +43,13 @@ const (
 
 //go:embed template/config.gotpl
 var vaultConfigTemplateStr string
-var funcMap = map[string]any{"mapquote": utils.MapQuote}
-var VaultConfigTemplate *template.Template = template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Funcs(funcMap).Parse(vaultConfigTemplateStr))
 
-// VaultServerReconciler reconciles a VaultServer object
+var (
+	funcMap                                = map[string]any{"mapquote": utils.MapQuote}
+	VaultConfigTemplate *template.Template = template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Funcs(funcMap).Parse(vaultConfigTemplateStr))
+)
+
+// VaultServerReconciler reconciles a VaultServer object.
 type VaultServerReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
@@ -66,7 +68,6 @@ type VaultServerReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
 // the VaultServer object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
@@ -75,7 +76,6 @@ type VaultServerReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *VaultServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.logger = logf.FromContext(ctx)
-
 	vaultServer := &v1alpha1.VaultServer{}
 	err := r.Get(ctx, req.NamespacedName, vaultServer)
 	if err != nil {
@@ -125,62 +125,63 @@ func (r *VaultServerReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// indicated by the deletion timestamp being set.
 	isVaultServerMarkedToBeDeleted := vaultServer.GetDeletionTimestamp() != nil
 	if isVaultServerMarkedToBeDeleted {
-		if controllerutil.ContainsFinalizer(vaultServer, vaultOperatorFinalizer) {
-			r.logger.Info("Performing Finalizer Operations for VaultServer before delete CR")
-
-			// Let's add here a status "Downgrade" to reflect that this resource began its process to be terminated.
-			meta.SetStatusCondition(&vaultServer.Status.Conditions, metav1.Condition{Type: typeDegradedVaultServer,
-				Status: metav1.ConditionUnknown, Reason: "Finalizing",
-				Message: fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", vaultServer.Name)})
-
-			if err := r.Status().Update(ctx, vaultServer); err != nil {
-				r.logger.Error(err, "Failed to update VaultServer status")
-				return ctrl.Result{}, err
-			}
-
-			r.waitForStatus(ctx, vaultServer, req, metav1.ConditionUnknown, "Finalizing")
-
-			// Perform all operations required before removing the finalizer and allow
-			// the Kubernetes API to remove the custom resource.
-			r.doFinalizerOperationsForVaultserver(vaultServer)
-
-			// TODO(user): If you add operations to the doFinalizerOperationsForMemcached method
-			// then you need to ensure that all worked fine before deleting and updating the Downgrade status
-			// otherwise, you should requeue here.
-
-			// Re-fetch the vaultServer Custom Resource before updating the status
-			// so that we have the latest state of the resource on the cluster and we will avoid
-			// raising the error "the object has been modified, please apply
-			// your changes to the latest version and try again" which would re-trigger the reconciliation
-			if err := r.Get(ctx, req.NamespacedName, vaultServer); err != nil {
-				r.logger.Error(err, "Failed to re-fetch vaultServer")
-				return ctrl.Result{}, err
-			}
-
-			meta.SetStatusCondition(&vaultServer.Status.Conditions, metav1.Condition{Type: typeDegradedVaultServer,
-				Status: metav1.ConditionTrue, Reason: "Finalizing",
-				Message: fmt.Sprintf("Finalizer operations for custom resource %s name were successfully accomplished", vaultServer.Name)})
-
-			if err := r.Status().Update(ctx, vaultServer); err != nil {
-				r.logger.Error(err, "Failed to update VaultServer status")
-				return ctrl.Result{}, err
-			}
-
-			r.waitForStatus(ctx, vaultServer, req, metav1.ConditionTrue, "Finalizing")
-
-			r.logger.Info("Removing Finalizer for VaultServer after successfully perform the operations")
-			if ok := controllerutil.RemoveFinalizer(vaultServer, vaultOperatorFinalizer); !ok {
-				err = fmt.Errorf("finalizer for VaultServer was not removed")
-				r.logger.Error(err, "Failed to remove finalizer for VaultServer")
-				return ctrl.Result{}, err
-			}
-
-			if err := r.Update(ctx, vaultServer); err != nil {
-				r.logger.Error(err, "Failed to remove finalizer for VaultServer")
-				return ctrl.Result{}, err
-			}
+		if !controllerutil.ContainsFinalizer(vaultServer, vaultOperatorFinalizer) {
+			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, nil
+
+		r.logger.Info("Performing Finalizer Operations for VaultServer before delete CR")
+
+		// Let's add here a status "Downgrade" to reflect that this resource began its process to be terminated.
+		meta.SetStatusCondition(&vaultServer.Status.Conditions, metav1.Condition{
+			Type:   typeDegradedVaultServer,
+			Status: metav1.ConditionUnknown, Reason: "Finalizing",
+			Message: fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", vaultServer.Name),
+		})
+
+		if err := r.Status().Update(ctx, vaultServer); err != nil {
+			r.logger.Error(err, "Failed to update VaultServer status")
+			return ctrl.Result{}, err
+		}
+
+		r.waitForStatus(ctx, vaultServer, req, metav1.ConditionUnknown, "Finalizing")
+
+		// Perform all operations required before removing the finalizer and allow
+		// the Kubernetes API to remove the custom resource.
+		r.doFinalizerOperationsForVaultserver(vaultServer)
+
+		// Re-fetch the vaultServer Custom Resource before updating the status
+		// so that we have the latest state of the resource on the cluster and we will avoid
+		// raising the error "the object has been modified, please apply
+		// your changes to the latest version and try again" which would re-trigger the reconciliation
+		if err := r.Get(ctx, req.NamespacedName, vaultServer); err != nil {
+			r.logger.Error(err, "Failed to re-fetch vaultServer")
+			return ctrl.Result{}, err
+		}
+
+		meta.SetStatusCondition(&vaultServer.Status.Conditions, metav1.Condition{
+			Type:   typeDegradedVaultServer,
+			Status: metav1.ConditionTrue, Reason: "Finalizing",
+			Message: fmt.Sprintf("Finalizer operations for custom resource %s name were successfully accomplished", vaultServer.Name),
+		})
+
+		if err := r.Status().Update(ctx, vaultServer); err != nil {
+			r.logger.Error(err, "Failed to update VaultServer status")
+			return ctrl.Result{}, err
+		}
+
+		r.waitForStatus(ctx, vaultServer, req, metav1.ConditionTrue, "Finalizing")
+
+		r.logger.Info("Removing Finalizer for VaultServer after successfully perform the operations")
+		if ok := controllerutil.RemoveFinalizer(vaultServer, vaultOperatorFinalizer); !ok {
+			err = fmt.Errorf("finalizer for VaultServer was not removed")
+			r.logger.Error(err, "Failed to remove finalizer for VaultServer")
+			return ctrl.Result{}, err
+		}
+
+		if err := r.Update(ctx, vaultServer); err != nil {
+			r.logger.Error(err, "Failed to remove finalizer for VaultServer")
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Check if the configMap already exists, if not create a new one
@@ -201,9 +202,11 @@ func (r *VaultServerReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// The following implementation will update the status
-	meta.SetStatusCondition(&vaultServer.Status.Conditions, metav1.Condition{Type: typeAvailableVaultServer,
+	meta.SetStatusCondition(&vaultServer.Status.Conditions, metav1.Condition{
+		Type:   typeAvailableVaultServer,
 		Status: metav1.ConditionTrue, Reason: "Reconciling",
-		Message: fmt.Sprintf("Resources for custom resource (%s) created successfully", vaultServer.Name)})
+		Message: fmt.Sprintf("Resources for custom resource (%s) created successfully", vaultServer.Name),
+	})
 
 	if err := r.Status().Update(ctx, vaultServer); err != nil {
 		vaultServer2 := &v1alpha1.VaultServer{}
@@ -259,7 +262,8 @@ func (r *VaultServerReconciler) reconcileStatefulSet(ctx context.Context, vaultS
 
 func (r *VaultServerReconciler) reconcileConfigMap(ctx context.Context, vaultServer *v1alpha1.VaultServer) error {
 	log := r.logger.WithValues("ConfigMap.Namespace", vaultServer.GetNamespace(), "ConfigMap.Name", vaultServer.GetConfigMapNameForVaultConfig())
-	if err := r.resolveSecret(ctx, vaultServer); err != nil {
+
+	if err := vaultServer.ResolveSecret(&r.Client, ctx); err != nil {
 		return err
 	}
 	secret, err := r.secretForVaultServer(vaultServer)
@@ -300,14 +304,14 @@ func configChecksumAnnotationName(obj metav1.TypeMeta) string {
 }
 
 func (r *VaultServerReconciler) secretForVaultServer(vaultServer *v1alpha1.VaultServer) (*corev1.Secret, error) {
-	var buf bytes.Buffer
 	secretData := make(map[string][]byte)
 	secretAnnotations := make(map[string]string)
-	if err := VaultConfigTemplate.Execute(&buf, vaultServer.Spec.Config); err != nil {
+	re := regexp.MustCompile(`\n\s*\n`)
+	renderedConfig, err := vaultServer.HclRender()
+	if err != nil {
 		return nil, err
 	}
-	var re = regexp.MustCompile(`\n\s*\n`)
-	config := re.ReplaceAllString(buf.String(), "\n")
+	config := re.ReplaceAllString(renderedConfig, "\n")
 	if _, err := server.ParseConfig(config, ""); err != nil {
 		r.logger.Info(fmt.Sprintf("Generated Vault-Config value %s\n", config))
 		r.logger.Error(err, "")
@@ -361,10 +365,11 @@ func (r *VaultServerReconciler) doFinalizerOperationsForVaultserver(cr *v1alpha1
 			cr.Namespace))
 }
 
-// statefulSetForVaultServer returns a VaultServer Deployment object
+// statefulSetForVaultServer returns a VaultServer Deployment object.
 func (r *VaultServerReconciler) statefulSetForVaultServer(
 	ctx context.Context,
-	vaultServer *v1alpha1.VaultServer) (*appsv1.StatefulSet, error) {
+	vaultServer *v1alpha1.VaultServer,
+) (*appsv1.StatefulSet, error) {
 	replicas := vaultServer.Spec.Size
 	addressPort, err := strconv.ParseInt(vaultServer.Spec.Config.ListenerTcp.Address().Port(), 10, 32)
 	if err != nil {
@@ -374,15 +379,9 @@ func (r *VaultServerReconciler) statefulSetForVaultServer(
 	if err != nil {
 		return nil, err
 	}
-	stsVolumes, stsVolumesMount := []corev1.Volume{}, []corev1.VolumeMount{}
-	vol, volMounts, err := r.listenerTcpTlsVolume(ctx, vaultServer)
+	stsVolumes, stsVolumesMount, err := vaultServer.Volumes(&r.Client, ctx)
 	if err != nil {
 		return nil, err
-	}
-
-	if vol != nil {
-		stsVolumes = append(stsVolumes, *vol)
-		stsVolumesMount = append(stsVolumesMount, *volMounts)
 	}
 
 	dep := &appsv1.StatefulSet{
@@ -424,7 +423,8 @@ func (r *VaultServerReconciler) statefulSetForVaultServer(
 							ContainerPort: int32(clusterPort),
 							Name:          "ClusterPort",
 						}},
-						Command: []string{"vault", "server"},
+						Command:      []string{"vault", "server"},
+						VolumeMounts: stsVolumesMount,
 					}},
 					Volumes: stsVolumes,
 				},

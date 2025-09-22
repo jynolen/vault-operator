@@ -4,24 +4,74 @@ run:
 linters:
   default: none
   enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - contextcheck
     - copyloopvar
     - dupl
+    - dupword
+    - durationcheck
+    - err113
     - errcheck
+    - errchkjson
+    - errorlint
+    - exhaustive
+    - exhaustruct
+    - fatcontext
     - ginkgolinter
+    - gocheckcompilerdirectives
+    - gochecksumtype
     - goconst
     - gocyclo
+    - godot
+    - godox
+    - gomodguard
+    - gosec
+    - gosmopolitan
     - govet
     - ineffassign
     - lll
+    - loggercheck
+    - maintidx
+    - makezero
     - misspell
+    - musttag
     - nakedret
+    - nestif
+    - nilerr
+    - nilnesserr
+    - noctx
+    - paralleltest
+    - perfsprint
     - prealloc
+    - protogetter
+    - reassign
+    - recvcheck
     - revive
+    - rowserrcheck
+    - spancheck
+    - sqlclosecheck
     - staticcheck
+    - testableexamples
+    - testifylint
+    - testpackage
+    - thelper
+    - tparallel
     - unconvert
     - unparam
     - unused
+    - usetesting
+    - wrapcheck
+    - zerologlint
   settings:
+    nestif:
+      min-complexity: 7
+    dupl:
+      # Tokens count to trigger issue.
+      # Default: 150
+      threshold: 200
     revive:
       rules:
         - name: comment-spacings
@@ -44,6 +94,8 @@ formatters:
   enable:
     - gofmt
     - goimports
+    - gci
+    - gofumpt
   exclusions:
     generated: lax
     paths:

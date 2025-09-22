@@ -8,6 +8,10 @@ metadata:
 spec:
   config: 
     ui: True
+    clusterName: Coucou
+    cacheSize: 4242
+    experiments: ["events.alpha1", "secrets.import.alpha1"]
+    defaultLeaseTTL: 2h7m5s
     listenerTcp:
       tls:
         disable: false

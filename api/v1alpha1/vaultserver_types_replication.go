@@ -17,48 +17,48 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"fmt"
-	"strconv"
+	"bytes"
+	"regexp"
+	"text/template"
 
+	"github.com/Masterminds/sprig/v3"
+	"github.com/jynolen/vault-operator/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"kythe.io/kythe/go/util/datasize"
 )
 
-// #region ReplicationSpec
-// Resource Specification Specific to Replication
+const replicationHclTemplate = `
+replication {
+    {{ range $key,$val := .MapValue }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+}
+`
 
 type ReplicationSpec struct {
-	ResolverDiscoverServers               *bool            `json:"resolverDiscoverServers,omitempty"`
-	LogshipperBufferLength                *int32           `json:"logshipperBufferLength,omitempty"`
-	LogshipperBufferSize                  *datasize.Size   `json:"logshipperBufferSize,omitempty"`
-	AllowForwardingViaHeader              *bool            `json:"allowForwardingViaHeader,omitempty"`
-	BestEffortWalWaitDuration             *metav1.Duration `json:"bestEffortWalWaitDuratione,omitempty"`
-	AllowForwardingViaToken               *string          `json:"allowForwardingViaToken,omitempty"`
-	ReplicationCanaryWriteIntervalSeconds *int32           `json:"replicationCanaryWriteIntervalSeconds,omitempty"`
+	ResolverDiscoverServers               *bool            `json:"resolverDiscoverServers,omitempty" hcl:"resolver_discover_servers"`
+	LogshipperBufferLength                *int32           `json:"logshipperBufferLength,omitempty" hcl:"logshipper_buffer_length"`
+	LogshipperBufferSize                  *datasize.Size   `json:"logshipperBufferSize,omitempty" hcl:"logshipper_buffer_size"`
+	AllowForwardingViaHeader              *bool            `json:"allowForwardingViaHeader,omitempty" hcl:"allow_forwarding_via_header"`
+	BestEffortWalWaitDuration             *metav1.Duration `json:"bestEffortWalWaitDuration,omitempty" hcl:"best_effort_wal_wait_duration"`
+	AllowForwardingViaToken               *string          `json:"allowForwardingViaToken,omitempty" hcl:"allow_forwarding_via_token"`
+	ReplicationCanaryWriteIntervalSeconds *int32           `json:"replicationCanaryWriteIntervalSeconds,omitempty" hcl:"replication_canary_write_interval_seconds"`
 }
 
-func (r *ReplicationSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if r.ResolverDiscoverServers != nil {
-		_m["resolver_discover_servers"] = strconv.FormatBool(*r.ResolverDiscoverServers)
+func (r *ReplicationSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*r); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if r.LogshipperBufferLength != nil {
-		_m["logshipper_buffer_length"] = strconv.FormatInt(int64(*r.LogshipperBufferLength), 10)
+}
+
+func (r *ReplicationSpec) HclRender() (string, error) {
+	var buf bytes.Buffer
+	template := template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Parse(replicationHclTemplate))
+	if err := template.Execute(&buf, r); err != nil {
+		return "", err
 	}
-	if r.LogshipperBufferSize != nil {
-		_m["logshipper_buffer_size"] = strconv.Quote(fmt.Sprintf("%dkb", int(r.LogshipperBufferSize.Kilobytes())))
-	}
-	if r.AllowForwardingViaHeader != nil {
-		_m["allow_forwarding_via_header"] = strconv.FormatBool(*r.AllowForwardingViaHeader)
-	}
-	if r.BestEffortWalWaitDuration != nil {
-		_m["best_effort_wal_wait_duration"] = strconv.Quote(fmt.Sprintf("%s", r.BestEffortWalWaitDuration.Duration))
-	}
-	if r.AllowForwardingViaToken != nil {
-		_m["allow_forwarding_via_token"] = strconv.Quote(*r.AllowForwardingViaToken)
-	}
-	if r.ReplicationCanaryWriteIntervalSeconds != nil {
-		_m["replication_canary_write_interval_seconds"] = strconv.FormatInt(int64(*r.ReplicationCanaryWriteIntervalSeconds), 10)
-	}
-	return _m
+	re := regexp.MustCompile(`\n\s*\n`)
+	return re.ReplaceAllString(buf.String(), "\n"), nil
 }

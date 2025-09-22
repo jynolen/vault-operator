@@ -17,25 +17,45 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"strconv"
+	"bytes"
+	"regexp"
+	"text/template"
+
+	"github.com/Masterminds/sprig/v3"
+	"github.com/jynolen/vault-operator/internal/utils"
 )
 
 // Resource Specification Specific to KmsLibrary
 
+const kmsHclTemplate = `
+kms_library "{{ .Type }}" {
+    {{ range $key,$val := .MapValue }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+}
+`
+
 type KmsLibrarySpec struct {
 	// +kubebuilder:validation:Enum=pkcs11
 	Type    string  `json:"type,omitempty"`
-	Name    *string `json:"name,omitempty"`
-	Library *string `json:"library,omitempty"`
+	Name    *string `json:"name,omitempty" hcl:"name"`
+	Library *string `json:"library,omitempty" hcl:"library"`
 }
 
-func (k *KmsLibrarySpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if k.Name != nil {
-		_m["name"] = strconv.Quote(*k.Name)
+func (k *KmsLibrarySpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*k); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if k.Library != nil {
-		_m["library"] = strconv.Quote(*k.Library)
+}
+
+func (k *KmsLibrarySpec) HclRender() (string, error) {
+	var buf bytes.Buffer
+	template := template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Parse(kmsHclTemplate))
+	if err := template.Execute(&buf, k); err != nil {
+		return "", err
 	}
-	return _m
+	re := regexp.MustCompile(`\n\s*\n`)
+	return re.ReplaceAllString(buf.String(), "\n"), nil
 }

@@ -17,20 +17,52 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"maps"
+	"regexp"
 	"strconv"
 	"strings"
+	"text/template"
 
+	"github.com/Masterminds/sprig/v3"
+	"github.com/jynolen/vault-operator/internal/utils"
+	"github.com/samber/lo"
 	"github.com/zeebo/xxh3"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"kythe.io/kythe/go/util/datasize"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // #region StorageSpec
+
+const storageHclTempate = `
+storage "{{ .Type }}" {
+    {{ range $key,$val := .MapValue }}
+        {{ if $val | typeIs "map[string]string" }}
+    {{ $key }} = { 
+            {{ range $k,$v := $val }}
+        {{ $k }} = {{ $v }}
+            {{ end }}
+    }
+        {{ else }}
+    {{ $key }} = {{ $val }}
+        {{ end }}
+    {{ end }}
+    {{ if eq .Type "raft" }}
+        {{ range .Raft.RetryJoin }}  
+    retry_join {
+            {{ range $key,$val := .MapValue }}
+        {{ $key }} = {{ $val }}
+            {{ end }}
+    }
+        {{ end }}
+    {{ end }}
+}
+`
 
 // +kubebuilder:validation:MinProperties=1
 // +kubebuilder:validation:MaxProperties=1
@@ -60,7 +92,23 @@ type StorageSpec struct {
 	ZooKeeper          *StorageZooKeeperSpec          `json:"zooKeeper,omitempty"`
 }
 
-func (s *StorageSpec) InternalStorage() ConfigBuilderHelper {
+func (s *StorageSpec) Type() string {
+	return s.internalStorage().Type()
+}
+
+func (s *StorageSpec) MapValue() (map[string]any, error) {
+	return s.internalStorage().MapValue()
+}
+
+func (s *StorageSpec) Secrets(c *client.Client, ctx context.Context, v *VaultServer) error {
+	return s.internalStorage().Secrets(c, ctx, v)
+}
+
+func (s *StorageSpec) Volumes(c *client.Client, ctx context.Context, v *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return s.internalStorage().Volumes(c, ctx, v)
+}
+
+func (s *StorageSpec) internalStorage() ConfigBuilderHelper {
 	if s.Aerospike != nil {
 		return s.Aerospike
 	}
@@ -133,36 +181,59 @@ func (s *StorageSpec) InternalStorage() ConfigBuilderHelper {
 	return nil
 }
 
+func (s *StorageSpec) HclRender() (string, error) {
+	var buf bytes.Buffer
+	template := template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Parse(storageHclTempate))
+	if err := template.Execute(&buf, s); err != nil {
+		return "", err
+	}
+	re := regexp.MustCompile(`\n\s*\n`)
+	return re.ReplaceAllString(buf.String(), "\n"), nil
+}
+
 type InternalStorageSpec struct {
-	MaxParallel *int32 `json:"maxParallel,omitempty"`
+	MaxParallel *int32 `json:"maxParallel,omitempty" hcl:"max_parallel"`
 }
 
 type StorageRaftRetrySpec struct {
-	LeaderApiAddr       *string         `json:"leaderApiAddr,omitempty"`
-	AutoJoin            *string         `json:"autoJoin,omitempty"`
-	AutoJoinPort        *int32          `json:"autoJoinPort,omitempty"`
-	LeaderTlsServername *string         `json:"leaderTlsServername,omitempty"`
+	LeaderApiAddr       *string         `json:"leaderApiAddr,omitempty" hcl:"leader_api_addr"`
+	AutoJoin            *string         `json:"autoJoin,omitempty" hcl:"auto_join"`
+	AutoJoinPort        *int32          `json:"autoJoinPort,omitempty" hcl:"auto_join_port"`
+	LeaderTlsServername *string         `json:"leaderTlsServername,omitempty" hcl:"leader_tls_servername"`
 	LeaderTls           *SecretSelector `json:"leaderTls,omitempty"`
 	// +kubebuilder:validation:Enum=http;https
-	AutoJoinScheme *string `json:"autoJoinScheme,omitempty"`
+	AutoJoinScheme *string `json:"autoJoinScheme,omitempty" hcl:"auto_join_scheme"`
 }
 
-func (s *StorageRaftRetrySpec) MapValue() map[string]any {
+func (s *StorageRaftRetrySpec) Volumes(c *client.Client, ctx context.Context, namespace string) (*corev1.Volume, *corev1.VolumeMount, error) {
+	_, err := s.LeaderTls.IsKind(c, ctx, namespace, corev1.SecretTypeTLS)
+	if err != nil {
+		return nil, nil, err
+	}
+	hash := fmt.Sprintf("%x", xxh3.HashString(*s.LeaderApiAddr))
+	v := corev1.Volume{
+		Name: fmt.Sprintf("storage-raft-leader-tls-%s", hash),
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: s.LeaderTls.SecretRef.Name,
+			},
+		},
+	}
+	m := corev1.VolumeMount{
+		Name:      fmt.Sprintf("storage-raft-leader-tls-%s", hash),
+		ReadOnly:  true,
+		MountPath: fmt.Sprintf("/raft/retry/%x", hash),
+	}
+
+	return &v, &m, nil
+}
+
+func (s *StorageRaftRetrySpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{}
-	if s.LeaderApiAddr != nil {
-		_m["leader_api_addr"] = strconv.Quote(*s.LeaderApiAddr)
-	}
-	if s.AutoJoin != nil {
-		_m["auto_join"] = strconv.Quote(*s.AutoJoin)
-	}
-	if s.AutoJoinPort != nil {
-		_m["auto_join_port"] = strconv.FormatInt(int64(*s.AutoJoinPort), 10)
-	}
-	if s.AutoJoinScheme != nil {
-		_m["auto_join_scheme"] = strconv.Quote(*s.AutoJoinScheme)
-	}
-	if s.LeaderTlsServername != nil {
-		_m["leader_tls_servername"] = strconv.Quote(*s.LeaderTlsServername)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
 	if s.LeaderTls != nil {
 		_tls := map[string]any{
@@ -172,385 +243,428 @@ func (s *StorageRaftRetrySpec) MapValue() map[string]any {
 		}
 		maps.Copy(_m, _tls)
 	}
-	return _m
+	return _m, nil
 }
 
 type StorageRaftSpec struct {
-	NodeId                             *string                `json:"nodeId,omitempty"`
-	AutopilotUpgradeVersion            *string                `json:"autopilotUpgradeVersion,omitempty"`
-	AutopilotRedundancyZone            *string                `json:"autopilotRedundancyZone,omitempty"`
+	NodeId                             *string                `json:"nodeId,omitempty" hcl:"node_id"`
+	AutopilotUpgradeVersion            *string                `json:"autopilotUpgradeVersion,omitempty" hcl:"autopilot_upgrade_version"`
+	AutopilotRedundancyZone            *string                `json:"autopilotRedundancyZone,omitempty" hcl:"autopilot_redundancy_zone"`
 	Experimental                       *map[string]string     `json:"experimental,omitempty"`
 	RetryJoin                          []StorageRaftRetrySpec `json:"retryJoin,omitempty"`
-	PerformanceMultiplier              *int32                 `json:"performanceMultiplier,omitempty"`
-	TrailingLogs                       *int32                 `json:"trailingLogs,omitempty"`
-	SnapshotThreshold                  *int32                 `json:"snapshotThreshold,omitempty"`
-	SnapshotInterval                   *int32                 `json:"snapshotInterval,omitempty"`
-	RetryJoinAsNonVoter                *bool                  `json:"retryJoinAsNonVoter,omitempty"`
-	MaxEntrySize                       *int32                 `json:"maxEntrySize,omitempty"`
-	MaxMountAndNamespaceTableEntrySize *int32                 `json:"maxMountAndNamespaceTableEntrySize,omitempty"`
-	AutopilotReconcileInterval         *metav1.Duration       `json:"autopilotReconcileInterval,omitempty"`
-	AutopilotUpdateInterval            *metav1.Duration       `json:"autopilotUpdateInterval,omitempty"`
+	PerformanceMultiplier              *int32                 `json:"performanceMultiplier,omitempty" hcl:"performance_multiplier"`
+	TrailingLogs                       *int32                 `json:"trailingLogs,omitempty" hcl:"trailing_logs"`
+	SnapshotThreshold                  *int32                 `json:"snapshotThreshold,omitempty" hcl:"snapshot_threshold"`
+	SnapshotInterval                   *int32                 `json:"snapshotInterval,omitempty" hcl:"snapshot_interval"`
+	RetryJoinAsNonVoter                *bool                  `json:"retryJoinAsNonVoter,omitempty" hcl:"retry_join_as_non_voter"`
+	MaxEntrySize                       *int32                 `json:"maxEntrySize,omitempty" hcl:"max_entry_size"`
+	MaxMountAndNamespaceTableEntrySize *int32                 `json:"maxMountAndNamespaceTableEntrySize,omitempty" hcl:"max_mount_and_namespace_table_entry_size"`
+	AutopilotReconcileInterval         *metav1.Duration       `json:"autopilotReconcileInterval,omitempty" hcl:"autopilot_reconcile_interval"`
+	AutopilotUpdateInterval            *metav1.Duration       `json:"autopilotUpdateInterval,omitempty" hcl:"autopilot_update_interval"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageRaftSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageRaftSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageRaftSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes, mounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	for _, retry := range lo.Filter(s.RetryJoin, func(o StorageRaftRetrySpec, _ int) bool { return o.LeaderTls != nil }) {
+		v, m, err := retry.Volumes(c, ctx, vaultServer.Namespace)
+		if err != nil {
+			return nil, nil, err
+		}
+		if v != nil && m != nil {
+			volumes, mounts = append(volumes, *v), append(mounts, *m)
+		}
+	}
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      vaultServer.Spec.PersistentVolumeClaim.Spec.VolumeName,
+		MountPath: "/raft",
+	})
+	return volumes, mounts, nil
 }
 
 func (s *StorageRaftSpec) Type() string {
 	return "raft"
 }
 
-func (s *StorageRaftSpec) MapValue() map[string]any {
+func (s *StorageRaftSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{
 		"path": strconv.Quote("/raft/"),
 	}
-	if s.NodeId != nil {
-		_m["node_id"] = strconv.Quote(*s.NodeId)
-	}
-	if s.PerformanceMultiplier != nil {
-		_m["performance_multiplier"] = strconv.FormatInt(int64(*s.PerformanceMultiplier), 10)
-	}
-	if s.SnapshotThreshold != nil {
-		_m["snapshot_threshold"] = strconv.FormatInt(int64(*s.SnapshotThreshold), 10)
-	}
-	if s.SnapshotInterval != nil {
-		_m["snapshot_interval"] = strconv.FormatInt(int64(*s.SnapshotInterval), 10)
-	}
-	if s.RetryJoinAsNonVoter != nil {
-		_m["retry_join_as_non_voter"] = strconv.FormatBool(*s.RetryJoinAsNonVoter)
-	}
-	if s.MaxEntrySize != nil {
-		_m["max_entry_size"] = strconv.FormatInt(int64(*s.MaxEntrySize), 10)
-	}
-	if s.AutopilotReconcileInterval != nil {
-		_m["autopilot_reconcile_interval"] = strconv.Quote(fmt.Sprintf("%s", s.AutopilotReconcileInterval.Duration))
-	}
-	if s.RetryJoinAsNonVoter != nil {
-		_m["autopilot_update_interval"] = strconv.Quote(fmt.Sprintf("%s", s.AutopilotUpdateInterval.Duration))
-	}
 
-	if s.MaxMountAndNamespaceTableEntrySize != nil {
-		_m["max_mount_and_namespace_table_entry_size"] = strconv.FormatInt(int64(*s.MaxMountAndNamespaceTableEntrySize), 10)
-	}
-	if s.AutopilotUpgradeVersion != nil {
-		_m["autopilot_upgrade_version"] = strconv.Quote(*s.AutopilotUpgradeVersion)
-	}
-	if s.AutopilotRedundancyZone != nil {
-		_m["autopilot_redundancy_zone"] = strconv.Quote(*s.AutopilotRedundancyZone)
-	}
 	if s.Experimental != nil {
 		for k, v := range *s.Experimental {
 			_m[k] = v
 		}
 	}
-	return _m
+
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
+	}
+	return _m, nil
 }
 
 type StorageZooKeeperTLSpec struct {
-	Enabled     *bool           `json:"enabled,omitempty"`
+	Enabled     *bool           `json:"enabled,omitempty" hcl:"tls_enabled"`
 	Certificate *SecretSelector `json:"certificate,omitempty"`
-	MinVersion  *TLSVersion     `json:"minVersion,omitempty"`
-	SkipVerify  *bool           `json:"skipVerify,omitempty"`
-	VerifyIP    *bool           `json:"verifyIp,omitempty"`
+	MinVersion  *TLSVersion     `json:"minVersion,omitempty" hcl:"tls_min_version"`
+	SkipVerify  *bool           `json:"skipVerify,omitempty" hcl:"tls_skip_verify"`
+	VerifyIP    *bool           `json:"verifyIp,omitempty" hcl:"tls_verify_ip"`
+}
+
+func (s *StorageZooKeeperTLSpec) Volumes(c *client.Client, ctx context.Context, namespace string) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes, mounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	if s.Certificate == nil {
+		return volumes, mounts, nil
+	}
+	_, err := s.Certificate.IsKind(c, ctx, namespace, corev1.SecretTypeTLS)
+	if err != nil {
+		return nil, nil, err
+	}
+	volumes = append(volumes, corev1.Volume{
+		Name: "seal-transit-client-tls",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: s.Certificate.SecretRef.Name,
+			},
+		},
+	})
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      "seal-transit-client-tls",
+		ReadOnly:  true,
+		MountPath: "/seal/transit",
+	})
+	return volumes, mounts, nil
+}
+
+func (s *StorageZooKeeperTLSpec) MapValue() (map[string]any, error) {
+	_m := map[string]any{
+		"tls_enabled":   strconv.FormatBool(true),
+		"tls_ca_file":   strconv.Quote("/zookeeper/ca.crt"),
+		"tls_cert_file": strconv.Quote("/zookeeper/tls.crt"),
+		"tls_key_file":  strconv.Quote("/zookeeper/tls.key"),
+	}
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
+	}
+	return _m, nil
 }
 
 type StorageZooKeeperSpec struct {
-	Address      *string                 `json:"address,omitempty"`
-	Path         *string                 `json:"path,omitempty"`
-	RedirectAddr *string                 `json:"redirect_addr,omitempty"`
-	ZnodeOwner   *SecretKeySelector      `json:"znodeOwner,omitempty"`
-	AuthInfo     *SecretKeySelector      `json:"authInfo,omitempty"`
-	Tls          *StorageZooKeeperTLSpec `json:"tls,omitempty"`
+	ZnodeOwner       *string                 `json:"-"  hcl:"znode_owner"`
+	AuthInfo         *string                 `json:"-"  hcl:"auth_info"`
+	Address          *string                 `json:"address,omitempty"  hcl:"address"`
+	Path             *string                 `json:"path,omitempty"  hcl:"path"`
+	RedirectAddr     *string                 `json:"redirect_addr,omitempty"  hcl:"redirect_addr"`
+	ZnodeOwnerSecret *SecretKeySelector      `json:"znodeOwner,omitempty"`
+	AuthInfoSecret   *SecretKeySelector      `json:"authInfo,omitempty"`
+	Tls              *StorageZooKeeperTLSpec `json:"tls,omitempty"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageZooKeeperSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.ZnodeOwnerSecret.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"znode_owner": {Dest: s.ZnodeOwner, Mandatory: true},
+	}
+	if err := secretMappings.Apply(&secret, "SealAliCloudKmsSpec.Credentials"); err != nil {
+		return err
+	}
+
+	t = types.NamespacedName{Name: s.AuthInfoSecret.SecretRef.Name, Namespace: vaultServer.Namespace}
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+
+	secretMappings = utils.SecretKvMapping{
+		"auth_info": {Dest: s.AuthInfo, Mandatory: true},
+	}
+	if err := secretMappings.Apply(&secret, "SealAliCloudKmsSpec.Credentials"); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageZooKeeperSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageZooKeeperSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	if s.Tls == nil {
+		return []corev1.Volume{}, []corev1.VolumeMount{}, nil
+	}
+	return s.Tls.Volumes(c, ctx, vaultServer.Namespace)
 }
 
 func (s *StorageZooKeeperSpec) Type() string {
 	return "zookeeper"
 }
 
-func (s *StorageZooKeeperSpec) MapValue() map[string]any {
+func (s *StorageZooKeeperSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{
 		"tls_enabled": strconv.FormatBool(false),
 	}
-	if s.Address != nil {
-		_m["address"] = strconv.Quote(*s.Address)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
-	if s.Path != nil {
-		_m["path"] = strconv.Quote(*s.Path)
-	}
-	if s.ZnodeOwner != nil {
-		_m["znode_owner"] = strconv.Quote("TODO")
-	}
-	if s.AuthInfo != nil {
-		_m["auth_info"] = strconv.Quote("TODO")
-	}
-	if s.AuthInfo != nil {
-		_m["redirect_addr"] = strconv.Quote(*s.RedirectAddr)
-	}
-	if s.Tls != nil && *s.Tls.Enabled {
-		tls := map[string]any{
-			"tls_enabled":   strconv.FormatBool(true),
-			"tls_ca_file":   strconv.Quote("/zookeeper/ca.crt"),
-			"tls_cert_file": strconv.Quote("/zookeeper/tls.crt"),
-			"tls_key_file":  strconv.Quote("/zookeeper/tls.key"),
+
+	if s.Tls != nil {
+		if _s, err := s.MapValue(); err != nil {
+			return nil, err
+		} else {
+			maps.Copy(_m, _s)
 		}
-		if s.Tls.MinVersion != nil {
-			tls["tls_min_version"] = strconv.Quote(string(*s.Tls.MinVersion))
-		}
-		if s.AuthInfo != nil {
-			tls["tls_skip_verify"] = strconv.FormatBool(*s.Tls.SkipVerify)
-		}
-		if s.AuthInfo != nil {
-			tls["tls_verify_ip"] = strconv.FormatBool(*s.Tls.VerifyIP)
-		}
-		maps.Copy(_m, tls)
 	}
-	return _m
+	return _m, nil
 }
 
 type StorageSwiftTenantSpec struct {
-	Name *string `json:"name,omitempty"`
-	ID   *string `json:"id,omitempty"`
+	Name *string `json:"name,omitempty" hcl:"tenant"`
+	ID   *string `json:"id,omitempty" hcl:"tenant_id"`
 }
 
-func (s *StorageSwiftTenantSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.Name != nil {
-		_m["tenant"] = strconv.Quote(*s.Name)
+func (s *StorageSwiftTenantSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.ID != nil {
-		_m["tenant_id"] = strconv.Quote(*s.ID)
-	}
-	return _m
 }
 
 type StorageSwiftDomainNameSpec struct {
-	Project *string `json:"project,omitempty"`
-	User    *string `json:"user,omitempty"`
+	Project *string `json:"project,omitempty" hcl:"project-domain"`
+	User    *string `json:"user,omitempty" hcl:"domain"`
 }
 
-func (s *StorageSwiftDomainNameSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.Project != nil {
-		_m["project-domain"] = strconv.Quote(*s.Project)
+func (s *StorageSwiftDomainNameSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.User != nil {
-		_m["domain"] = strconv.Quote(*s.User)
-	}
-	return _m
 }
 
 type StorageSwiftSpec struct {
 	InternalStorageSpec `json:",inline"`
-	AuthUrl             *string                     `json:"authUrl,omitempty"`
-	Container           *string                     `json:"container,omitempty"`
-	StorageUrl          *string                     `json:"storageUrl,omitempty"`
-	Region              *string                     `json:"region,omitempty"`
+	Username            *string                     `json:"-" hcl:"username"`
+	Password            *string                     `json:"-" hcl:"password"`
+	AuthToken           *string                     `json:"-" hcl:"auth_token"`
+	AuthUrl             *string                     `json:"authUrl,omitempty" hcl:"auth_url"`
+	Container           *string                     `json:"container,omitempty" hcl:"container"`
+	StorageUrl          *string                     `json:"storageUrl,omitempty" hcl:"storage_url"`
+	Region              *string                     `json:"region,omitempty" hcl:"region"`
 	Tenant              *StorageSwiftTenantSpec     `json:"tenant,omitempty"`
 	DomainName          *StorageSwiftDomainNameSpec `json:"domainName,omitempty"`
-	TrustId             *string                     `json:"trustId,omitempty"`
+	TrustId             *string                     `json:"trustId,omitempty" hcl:"trust_id"`
 	Credentials         *SecretSelector             `json:"credentials,omitempty"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageSwiftSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"username":   {Dest: s.Username, Mandatory: true},
+		"password":   {Dest: s.Password, Mandatory: true},
+		"auth_token": {Dest: s.AuthToken, Mandatory: false},
+	}
+	return secretMappings.Apply(&secret, "StorageSwiftSpec.Credentials")
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageSwiftSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageSwiftSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StorageSwiftSpec) Type() string {
 	return "swift"
 }
 
-func (s *StorageSwiftSpec) MapValue() map[string]any {
+func (s *StorageSwiftSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{}
-	if s.AuthUrl != nil {
-		_m["auth_url"] = strconv.Quote(*s.AuthUrl)
-	}
-	if s.Container != nil {
-		_m["container"] = strconv.Quote(*s.Container)
-	}
-	if s.StorageUrl != nil {
-		_m["storage_url"] = strconv.Quote(*s.StorageUrl)
-	}
-	if s.Region != nil {
-		_m["region"] = strconv.Quote(*s.Region)
-	}
-	if s.TrustId != nil {
-		_m["trust_id"] = strconv.Quote(*s.TrustId)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
 	if s.Tenant != nil {
-		maps.Copy(_m, s.Tenant.MapValue())
+		if _s, err := s.Tenant.MapValue(); err != nil {
+			return nil, err
+		} else {
+			maps.Copy(_m, _s)
+		}
 	}
 	if s.DomainName != nil {
-		maps.Copy(_m, s.DomainName.MapValue())
+		if _s, err := s.DomainName.MapValue(); err != nil {
+			return nil, err
+		} else {
+			maps.Copy(_m, _s)
+		}
 	}
-
-	return _m
+	return _m, nil
 }
 
 type StorageS3Spec struct {
 	InternalStorageSpec `json:",inline"`
-	Bucket              *string         `json:"bucket"`
-	KmsKeyId            *string         `json:"kmsKeyId,omitempty"`
-	Path                *string         `json:"path,omitempty"`
-	Endpoint            *string         `json:"endpoint,omitempty"`
-	Region              *string         `json:"region,omitempty"`
-	S3ForcePathStyle    *bool           `json:"s3ForcePathStyle,omitempty"`
-	DisableSsl          *bool           `json:"disableSsl,omitempty"`
+	AccessKey           *string         `json:"-" hcl:"access_key"`
+	SecretKey           *string         `json:"-" hcl:"secret_key"`
+	SessionToken        *string         `json:"-" hcl:"session_token"`
+	Bucket              *string         `json:"bucket" hcl:"bucket"`
+	KmsKeyId            *string         `json:"kmsKeyId,omitempty" hcl:"kms_key_id"`
+	Path                *string         `json:"path,omitempty" hcl:"path"`
+	Endpoint            *string         `json:"endpoint,omitempty" hcl:"endpoint"`
+	Region              *string         `json:"region,omitempty" hcl:"region"`
+	S3ForcePathStyle    *bool           `json:"s3ForcePathStyle,omitempty" hcl:"s3_force_path_style"`
+	DisableSsl          *bool           `json:"disableSsl,omitempty" hcl:"disable_ssl"`
 	Credentials         *SecretSelector `json:"credentials,omitempty"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageS3Spec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"access_key":    {Dest: s.AccessKey, Mandatory: true},
+		"secret_key":    {Dest: s.SecretKey, Mandatory: true},
+		"session_token": {Dest: s.SessionToken},
+	}
+	return secretMappings.Apply(&secret, "StorageS3Spec.Credentials")
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageS3Spec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageS3Spec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StorageS3Spec) Type() string {
 	return "s3"
 }
 
-func (s *StorageS3Spec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.Bucket != nil {
-		_m["bucket"] = strconv.Quote(*s.Bucket)
+func (s *StorageS3Spec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.Endpoint != nil {
-		_m["endpoint"] = strconv.Quote(*s.Endpoint)
-	}
-	if s.Region != nil {
-		_m["region"] = strconv.Quote(*s.Region)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	if s.S3ForcePathStyle != nil {
-		_m["s3_force_path_style"] = strconv.FormatBool(*s.S3ForcePathStyle)
-	}
-	if s.DisableSsl != nil {
-		_m["disable_ssl"] = strconv.FormatBool(*s.DisableSsl)
-	}
-	if s.KmsKeyId != nil {
-		_m["kms_key_id"] = strconv.Quote(*s.KmsKeyId)
-	}
-	if s.Path != nil {
-		_m["path"] = strconv.Quote(*s.Path)
-	}
-	return _m
 }
 
 type StorageOCIObjectStorageSpec struct {
-	Region         *string         `json:"region,omitempty"`
-	NamespaceName  *string         `json:"namespaceName"`
-	BucketName     *string         `json:"bucketName"`
-	HaEnabled      *bool           `json:"haEnabled"`
-	LockBucketName *string         `json:"lockBucketName"`
-	Credentials    *SecretSelector `json:"credentials,omitempty"`
+	Region         *string            `json:"region,omitempty" hcl:"region"`
+	NamespaceName  *string            `json:"namespaceName" hcl:"namespace_name"`
+	BucketName     *string            `json:"bucketName" hcl:"bucket_name"`
+	HaEnabled      *bool              `json:"haEnabled" hcl:"ha_enabled"`
+	LockBucketName *string            `json:"lockBucketName" hcl:"lock_bucket_name"`
+	Credentials    *SecretKeySelector `json:"credentials,omitempty"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageOCIObjectStorageSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageOCIObjectStorageSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageOCIObjectStorageSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes, mounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	_, err := s.Credentials.ContainsKey(c, ctx, vaultServer.Namespace)
+	if err != nil {
+		return nil, nil, err
+	}
+	volumes = append(volumes, corev1.Volume{
+		Name: "storage-oci-credentials",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: s.Credentials.SecretRef.Name,
+				Items: []corev1.KeyToPath{{
+					Key:  s.Credentials.SecretRef.Key,
+					Path: "config",
+				}},
+			},
+		},
+	})
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      "storage-oci-credentials",
+		ReadOnly:  true,
+		MountPath: "/oci/config",
+		SubPath:   "config",
+	})
+	return volumes, mounts, nil
 }
 
 func (s *StorageOCIObjectStorageSpec) Type() string {
 	return "oci"
 }
 
-func (s *StorageOCIObjectStorageSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.Region != nil {
-		_m["region"] = strconv.Quote(*s.Region)
+func (s *StorageOCIObjectStorageSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.NamespaceName != nil {
-		_m["namesapce_name"] = strconv.Quote(*s.NamespaceName)
-	}
-	if s.BucketName != nil {
-		_m["bucket_name"] = strconv.Quote(*s.BucketName)
-	}
-	if s.LockBucketName != nil {
-		_m["lock_bucket_name"] = strconv.Quote(*s.LockBucketName)
-	}
-	if s.HaEnabled != nil {
-		_m["ha_enabled"] = strconv.FormatBool(*s.HaEnabled)
-	}
-	return _m
 }
 
 type StoragePostgreSqlAwsSpec struct {
-	DbRegion *string `json:"awsDbRegion,omitempty"`
+	DbRegion *string `json:"awsDbRegion,omitempty" hcl:"aws_db_region"`
 }
 
-func (s *StoragePostgreSqlAwsSpec) MapValue() map[string]any {
+func (s *StoragePostgreSqlAwsSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{
 		"auth_mode": strconv.Quote("aws_iam"),
 	}
-	if s.DbRegion != nil {
-		_m["lock_bucket_name"] = strconv.Quote(*s.DbRegion)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
-	return _m
+	return _m, nil
 }
 
 type StoragePostgreSqlAzureSpec struct {
-	ClientId *string `json:"clientId,omitempty"`
+	ClientId *string `json:"clientId,omitempty" hcl:"client_id"`
 }
 
-func (s *StoragePostgreSqlAzureSpec) MapValue() map[string]any {
+func (s *StoragePostgreSqlAzureSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{
 		"auth_mode": strconv.Quote("azure_msi"),
 	}
-	if s.ClientId != nil {
-		_m["client_id"] = strconv.Quote(*s.ClientId)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
-	return _m
+	return _m, nil
 }
 
 type StoragePostgreSqlGcpSpec struct{}
 
-func (s *StoragePostgreSqlGcpSpec) MapValue() map[string]any {
+func (s *StoragePostgreSqlGcpSpec) MapValue() (map[string]any, error) {
 	return map[string]any{
 		"auth_mode": strconv.Quote("gcp_iam"),
-	}
+	}, nil
 }
 
 type StoragePostgreSqlStandardSpec struct{}
 
-func (s *StoragePostgreSqlStandardSpec) MapValue() map[string]any {
+func (s *StoragePostgreSqlStandardSpec) MapValue() (map[string]any, error) {
 	return map[string]any{
 		"auth_mode": strconv.Quote("standard"),
-	}
+	}, nil
 }
 
 // +kubebuilder:validation:MinProperties=0
@@ -562,7 +676,7 @@ type StoragePostgreSqlAutModeSpec struct {
 	Standard *StoragePostgreSqlStandardSpec `json:"standard,omitempty"`
 }
 
-func (s *StoragePostgreSqlAutModeSpec) MapValue() map[string]any {
+func (s *StoragePostgreSqlAutModeSpec) MapValue() (map[string]any, error) {
 	if s.Aws != nil {
 		return s.Aws.MapValue()
 	}
@@ -575,302 +689,296 @@ func (s *StoragePostgreSqlAutModeSpec) MapValue() map[string]any {
 	if s.Standard != nil {
 		return s.Standard.MapValue()
 	}
-	return map[string]any{}
+	return map[string]any{}, nil
 }
 
 type StoragePostgreSqlSpec struct {
 	InternalStorageSpec `json:",inline"`
-
-	ConnectionUrl      *SecretKeySelector            `json:"connectionUrl,omitempty"`
-	AuthMode           *StoragePostgreSqlAutModeSpec `json:"authMode,omitempty"`
-	HaEnabled          *bool                         `json:"haEnabled,omitempty"`
-	HATable            *string                       `json:"haTable,omitempty"`
-	Table              *string                       `json:"table,omitempty"`
-	MaxIdleConnections *int32                        `json:"maxIdleConnections,omitempty"`
+	ConnectionUrl       *string                       `json:"-" hcl:"connection_url"`
+	ConnectionUrlSecret *SecretKeySelector            `json:"connectionUrl,omitempty"`
+	AuthMode            *StoragePostgreSqlAutModeSpec `json:"authMode,omitempty"`
+	HaEnabled           *bool                         `json:"haEnabled,omitempty" hcl:"ha_enabled"`
+	HATable             *string                       `json:"haTable,omitempty" hcl:"ha_table"`
+	Table               *string                       `json:"table,omitempty" hcl:"table"`
+	MaxIdleConnections  *int32                        `json:"maxIdleConnections,omitempty" hcl:"max_idle_connections"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StoragePostgreSqlSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.ConnectionUrlSecret.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"connection_url": {Dest: s.ConnectionUrl, Mandatory: true, Src: s.ConnectionUrlSecret.SecretRef.Key},
+	}
+	return secretMappings.Apply(&secret, "SealTransitSpec.Credentials")
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StoragePostgreSqlSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StoragePostgreSqlSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StoragePostgreSqlSpec) Type() string {
 	return "postgresql"
 }
 
-func (s *StoragePostgreSqlSpec) MapValue() map[string]any {
+func (s *StoragePostgreSqlSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{}
-	if s.Table != nil {
-		_m["table"] = strconv.Quote(*s.Table)
-	}
-	if s.MaxIdleConnections != nil {
-		_m["max_idle_connections"] = strconv.FormatInt(int64(*s.MaxIdleConnections), 10)
-	}
-	if s.HaEnabled != nil {
-		_m["ha_enabled"] = strconv.FormatBool(*s.HaEnabled)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	if s.HATable != nil {
-		_m["ha_table"] = strconv.Quote(*s.HATable)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
 
 	if s.AuthMode != nil {
-		maps.Copy(_m, s.AuthMode.MapValue())
+		if _s, err := s.AuthMode.MapValue(); err != nil {
+			return nil, err
+		} else {
+			maps.Copy(_m, _s)
+		}
 	}
-	return _m
+	return _m, nil
 }
 
 type StorageDynamoDBCapacitySpec struct {
-	Read  *int32 `json:"read,omitempty"`
-	Write *int32 `json:"write,omitempty"`
+	Read  *int32 `json:"read,omitempty" hcl:"read_capacity"`
+	Write *int32 `json:"write,omitempty" hcl:"write_capacity"`
 }
 
-func (s *StorageDynamoDBCapacitySpec) MapValue() map[string]any {
-	_m := map[string]any{}
-
-	if s.Read != nil {
-		_m["read_capacity"] = strconv.FormatInt(int64(*s.Read), 10)
+func (s *StorageDynamoDBCapacitySpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.Write != nil {
-		_m["write_capacity"] = strconv.FormatInt(int64(*s.Write), 10)
-	}
-	return _m
 }
 
 type StorageDynamoDBSpec struct {
 	InternalStorageSpec `json:",inline"`
 
-	AccessKey            *string                      `json:"-"`
-	SecretKey            *string                      `json:"-"`
-	SessionToken         *string                      `json:"-"`
-	DynamodbAllowUpdates *string                      `json:"dynamodbAllowUpdates,omitempty"`
+	AccessKey            *string                      `json:"-" hcl:"access_key"`
+	SecretKey            *string                      `json:"-" hcl:"secret_key"`
+	SessionToken         *string                      `json:"-" hcl:"session_token"`
+	DynamodbAllowUpdates *string                      `json:"dynamodbAllowUpdates,omitempty" hcl:"dynamodb_allow_updates"`
 	Credentials          *SecretSelector              `json:"credentials,omitempty"`
 	Capacity             *StorageDynamoDBCapacitySpec `json:"capacity,omitempty"`
-	Endpoint             *string                      `json:"endpoint,omitempty"`
-	HaEnabled            *bool                        `json:"haEnabled,omitempty"`
-	Region               *string                      `json:"region,omitempty"`
-	Table                *string                      `json:"table,omitempty"`
+	Endpoint             *string                      `json:"endpoint,omitempty" hcl:"endpoint"`
+	HaEnabled            *bool                        `json:"haEnabled,omitempty" hcl:"ha_enabled"`
+	Region               *string                      `json:"region,omitempty" hcl:"region"`
+	Table                *string                      `json:"table,omitempty" hcl:"table"`
 	// +kubebuilder:validation:Enum=PROVISIONED;PAY_PER_REQUEST
-	BillingMode *string `json:"billingMode,omitempty"`
+	BillingMode *string `json:"billingMode,omitempty" hcl:"billing_mode"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageDynamoDBSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"access_key":    {Dest: s.AccessKey, Mandatory: true},
+		"secret_key":    {Dest: s.SecretKey, Mandatory: true},
+		"session_token": {Dest: s.SessionToken},
+	}
+	return secretMappings.Apply(&secret, "SealAwsKmsSpec.Credentials")
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageDynamoDBSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageDynamoDBSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StorageDynamoDBSpec) Type() string {
 	return "dynamodb"
 }
 
-func (s *StorageDynamoDBSpec) MapValue() map[string]any {
+func (s *StorageDynamoDBSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{}
-	if s.BillingMode != nil {
-		_m["billing_mode"] = strconv.Quote(*s.BillingMode)
-	}
-	if s.DynamodbAllowUpdates != nil {
-		_m["dynamodb_allow_updates"] = strconv.Quote(*s.DynamodbAllowUpdates)
-	}
-	if s.HaEnabled != nil {
-		_m["ha_enabled"] = strconv.FormatBool(*s.HaEnabled)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	if s.Endpoint != nil {
-		_m["endpoint"] = strconv.Quote(*s.Endpoint)
-	}
-	if s.Region != nil {
-		_m["region"] = strconv.Quote(*s.Region)
-	}
-	if s.Table != nil {
-		_m["table"] = strconv.Quote(*s.Table)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
 
 	if s.Capacity != nil {
-		maps.Copy(_m, s.Capacity.MapValue())
+		if _s, err := s.Capacity.MapValue(); err != nil {
+			return nil, err
+		} else {
+			maps.Copy(_m, _s)
+		}
 	}
-	return _m
+	return _m, nil
 }
 
 type StorageMySqlSpec struct {
-	InternalStorageSpec `json:",inline"`
-
-	Address                    *string               `json:"address"`
+	InternalStorageSpec        `json:",inline"`
+	Username                   *string               `json:"-" hcl:"username"`
+	Password                   *string               `json:"-" hcl:"password"`
+	Address                    *string               `json:"address" hcl:"address"`
 	Credentials                *SecretSelector       `json:"credentials,omitempty"`
-	Database                   *string               `json:"database,omitempty"`
-	Table                      *string               `json:"table,omitempty"`
-	MaxIdleConnections         *int32                `json:"maxIdleConnections,omitempty"`
-	MaxConnectionLifetime      *int32                `json:"maxConnectionLifetime,omitempty"`
-	PlaintextConnectionAllowed *string               `json:"plaintextConnectionAllowed,omitempty"`
+	Database                   *string               `json:"database,omitempty" hcl:"database"`
+	Table                      *string               `json:"table,omitempty" hcl:"table"`
+	MaxIdleConnections         *int32                `json:"maxIdleConnections,omitempty" hcl:"max_idle_connections"`
+	MaxConnectionLifetime      *int32                `json:"maxConnectionLifetime,omitempty" hcl:"max_connection_lifetime"`
+	PlaintextConnectionAllowed *string               `json:"plaintextConnectionAllowed,omitempty" hcl:"plaintext_connection_allowed"`
 	TlsCa                      *ConfigMapKeySelector `json:"tlsCa,omitempty"`
-	HaEnabled                  *bool                 `json:"haEnabled,omitempty"`
-	LockTable                  *string               `json:"lockTable,omitempty"`
+	HaEnabled                  *bool                 `json:"haEnabled,omitempty" hcl:"ha_enabled"`
+	LockTable                  *string               `json:"lockTable,omitempty" hcl:"lock_table"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageMySqlSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"username": {Dest: s.Username, Mandatory: true},
+		"password": {Dest: s.Password, Mandatory: true},
+	}
+	return secretMappings.Apply(&secret, "StorageMySqlSpec.Credentials")
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageMySqlSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageMySqlSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes, mounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	if s.TlsCa == nil {
+		return volumes, mounts, nil
+	}
+	_, err := s.TlsCa.ContainsKey(c, ctx, vaultServer.Namespace)
+	if err != nil {
+		return nil, nil, err
+	}
+	volumes = append(volumes, corev1.Volume{
+		Name: "storage-mysql-tls",
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: s.TlsCa.ConfigMapRef.Name},
+				Items: []corev1.KeyToPath{{
+					Key:  s.TlsCa.ConfigMapRef.Key,
+					Path: "ca.crt",
+				}},
+			},
+		},
+	})
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      "seal-transit-client-tls",
+		ReadOnly:  true,
+		MountPath: "/mysql/ca.crt",
+		SubPath:   "ca.crt",
+	})
+	return volumes, mounts, nil
 }
 
 func (s *StorageMySqlSpec) Type() string {
 	return "mysql"
 }
 
-func (s *StorageMySqlSpec) MapValue() map[string]any {
+func (s *StorageMySqlSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{}
-	if s.Address != nil {
-		_m["address"] = strconv.Quote(*s.Address)
-	}
-	if s.Database != nil {
-		_m["database"] = strconv.Quote(*s.Database)
-	}
-	if s.HaEnabled != nil {
-		_m["ha_enabled"] = strconv.FormatBool(*s.HaEnabled)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	if s.Table != nil {
-		_m["table"] = strconv.Quote(*s.Table)
-	}
-	if s.MaxIdleConnections != nil {
-		_m["max_idle_connections"] = strconv.FormatInt(int64(*s.MaxIdleConnections), 10)
-	}
-	if s.MaxConnectionLifetime != nil {
-		_m["max_connection_lifetime"] = strconv.FormatInt(int64(*s.MaxConnectionLifetime), 10)
-	}
-	if s.LockTable != nil {
-		_m["lock_table"] = strconv.Quote(*s.LockTable)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
 	if s.TlsCa != nil {
 		_m["tls_ca_file"] = strconv.Quote("/mysql/ca.crt")
 	}
-	return _m
+	return _m, nil
 }
 
 type StorageMsSqlSpec struct {
 	InternalStorageSpec `json:",inline"`
 
-	Server            *string         `json:"server"`
-	Port              *int32          `json:"port,omitempty"`
+	Username          *string         `json:"-" hcl:"username"`
+	Password          *string         `json:"-" hcl:"password"`
+	Server            *string         `json:"server" hcl:"server"`
+	Port              *int32          `json:"port,omitempty" hcl:"port"`
 	Credentials       *SecretSelector `json:"credentials,omitempty"`
-	Database          *string         `json:"database,omitempty"`
-	Table             *string         `json:"table,omitempty"`
-	Schema            *string         `json:"schema,omitempty"`
-	ConnectionTimeout *int32          `json:"connectionTimeout,omitempty"`
-	AppName           *string         `json:"appName,omitempty"`
+	Database          *string         `json:"database,omitempty" hcl:"database"`
+	Table             *string         `json:"table,omitempty" hcl:"table"`
+	Schema            *string         `json:"schema,omitempty" hcl:"schema"`
+	ConnectionTimeout *int32          `json:"connectionTimeout,omitempty" hcl:"connectionTimeout"`
+	AppName           *string         `json:"appName,omitempty" hcl:"appname"`
 
 	// +kubebuilder:validation:Maximum=63
 	// +kubebuilder:validation:Minimum=0
-	LogLevel *int32 `json:"logLevel,omitempty"`
+	LogLevel *int32 `json:"logLevel,omitempty" hcl:"logLevel"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageMsSqlSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"username": {Dest: s.Username, Mandatory: true},
+		"password": {Dest: s.Password, Mandatory: true},
+	}
+	return secretMappings.Apply(&secret, "StorageMsSqlSpec.Credentials")
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageMsSqlSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageMsSqlSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StorageMsSqlSpec) Type() string {
 	return "mssql"
 }
 
-func (s *StorageMsSqlSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.Server != nil {
-		_m["server"] = strconv.Quote(*s.Server)
+func (s *StorageMsSqlSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.Port != nil {
-		_m["port"] = strconv.FormatInt(int64(*s.Port), 10)
-	}
-	if s.Database != nil {
-		_m["database"] = strconv.Quote(*s.Database)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	if s.Table != nil {
-		_m["table"] = strconv.Quote(*s.Table)
-	}
-	if s.Schema != nil {
-		_m["schema"] = strconv.Quote(*s.Schema)
-	}
-	if s.AppName != nil {
-		_m["appname"] = strconv.Quote(*s.AppName)
-	}
-	if s.ConnectionTimeout != nil {
-		_m["connectionTimeout"] = strconv.FormatInt(int64(*s.ConnectionTimeout), 10)
-	}
-	if s.LogLevel != nil {
-		_m["logLevel"] = strconv.FormatInt(int64(*s.LogLevel), 10)
-	}
-	return _m
 }
 
 type StorageEtcdTimeoutSpec struct {
-	Request *metav1.Duration `json:"request,omitempty"`
-	Lock    *metav1.Duration `json:"lock,omitempty"`
+	Request *metav1.Duration `json:"request,omitempty" hcl:"request_timeout"`
+	Lock    *metav1.Duration `json:"lock,omitempty" hcl:"lock_timeout"`
 }
 
-func (s *StorageEtcdTimeoutSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.Request != nil {
-		_m["request_timeout"] = strconv.Quote(fmt.Sprintf("%s", s.Request.Duration))
+func (s *StorageEtcdTimeoutSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.Lock != nil {
-		_m["lock_timeout"] = strconv.Quote(fmt.Sprintf("%s", s.Lock.Duration))
-	}
-	return _m
 }
 
 type StorageEtcdMaxSpec struct {
-	ReceiveSize *datasize.Size `json:"receiveSize,omitempty"`
-	SendSize    *datasize.Size `json:"sendSize,omitempty"`
+	ReceiveSize *datasize.Size `json:"receiveSize,omitempty" hcl:"max_receive_size"`
+	SendSize    *datasize.Size `json:"sendSize,omitempty" hcl:"max_send_size"`
 }
 
-func (s *StorageEtcdMaxSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.ReceiveSize != nil {
-		_m["max_receive_size"] = strconv.Quote(fmt.Sprintf("%d", s.ReceiveSize.Bytes()))
+func (s *StorageEtcdMaxSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.SendSize != nil {
-		_m["max_send_size"] = strconv.Quote(fmt.Sprintf("%d", s.SendSize.Bytes()))
-	}
-	return _m
 }
 
 type StorageEtcdSpec struct {
-	Username         *string                 `json:"-"`
-	Password         *string                 `json:"-"`
-	Address          *string                 `json:"address,omitempty"`
-	DiscoverySrv     *string                 `json:"discoverySrv,omitempty"`
-	DiscoverySrvName *string                 `json:"discoverySrvName,omitempty"`
-	EtcdApi          *string                 `json:"etcdApi,omitempty"`
-	HaEnabled        *bool                   `json:"haEnabled,omitempty"`
-	Path             *string                 `json:"path,omitempty"`
-	Sync             *bool                   `json:"sync,omitempty"`
+	Username         *string                 `json:"-" hcl:"username"`
+	Password         *string                 `json:"-" hcl:"password"`
+	Address          *string                 `json:"address,omitempty" hcl:"address"`
+	DiscoverySrv     *string                 `json:"discoverySrv,omitempty" hcl:"discovery_srv"`
+	DiscoverySrvName *string                 `json:"discoverySrvName,omitempty" hcl:"discovery_srv_name"`
+	EtcdApi          *string                 `json:"etcdApi,omitempty" hcl:"etcd_api"`
+	HaEnabled        *bool                   `json:"haEnabled,omitempty" hcl:"ha_enabled"`
+	Path             *string                 `json:"path,omitempty" hcl:"path"`
+	Sync             *bool                   `json:"sync,omitempty" hcl:"sync"`
 	Timeout          *StorageEtcdTimeoutSpec `json:"timeout,omitempty"`
 	Max              *StorageEtcdMaxSpec     `json:"max,omitempty"`
 	Credentials      *SecretSelector         `json:"credentials,omitempty"`
@@ -879,40 +987,53 @@ type StorageEtcdSpec struct {
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageEtcdSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"username": {Dest: s.Username, Mandatory: true},
+		"password": {Dest: s.Password, Mandatory: true},
+	}
+	secretMappings.Apply(&secret, "StorageCouchDBSpec.Credentials")
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageEtcdSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageEtcdSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	if s.Tls == nil {
+		return []corev1.Volume{}, []corev1.VolumeMount{}, nil
+	}
+	if _, err := s.Tls.IsKind(c, ctx, vaultServer.Namespace, corev1.SecretTypeTLS); err != nil {
+		return nil, nil, err
+	}
+	v := corev1.Volume{
+		Name: "storage-etcd-tls",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: s.Tls.SecretRef.Name,
+			},
+		},
+	}
+	m := corev1.VolumeMount{
+		Name:      "storage-etcd-tls",
+		ReadOnly:  true,
+		MountPath: "/etcd",
+	}
+	return []corev1.Volume{v}, []corev1.VolumeMount{m}, nil
 }
 
 func (s *StorageEtcdSpec) Type() string {
 	return "etcd"
 }
 
-func (s *StorageEtcdSpec) MapValue() map[string]any {
+func (s *StorageEtcdSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{}
-	if s.Address != nil {
-		_m["address"] = strconv.Quote(*s.Address)
-	}
-	if s.DiscoverySrv != nil {
-		_m["discovery_srv"] = strconv.Quote(*s.DiscoverySrv)
-	}
-	if s.DiscoverySrvName != nil {
-		_m["discovery_srv_name"] = strconv.Quote(*s.DiscoverySrvName)
-	}
-	if s.HaEnabled != nil {
-		_m["ha_enabled"] = strconv.FormatBool(*s.HaEnabled)
-	}
-	if s.EtcdApi != nil {
-		_m["etcd_api"] = strconv.Quote(*s.EtcdApi)
-	}
-	if s.Path != nil {
-		_m["path"] = strconv.Quote(*s.Path)
-	}
-	if s.Sync != nil {
-		_m["sync"] = strconv.FormatBool(*s.Sync)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
 
 	if s.Tls != nil {
@@ -921,314 +1042,391 @@ func (s *StorageEtcdSpec) MapValue() map[string]any {
 		_m["tls_key_file"] = strconv.Quote("/etcd/tls.key")
 	}
 	if s.Timeout != nil {
-		maps.Copy(_m, s.Timeout.MapValue())
+		if _s, err := s.Timeout.MapValue(); err != nil {
+			return nil, err
+		} else {
+			maps.Copy(_m, _s)
+		}
 	}
 	if s.Max != nil {
-		maps.Copy(_m, s.Max.MapValue())
+		if _s, err := s.Max.MapValue(); err != nil {
+			return nil, err
+		} else {
+			maps.Copy(_m, _s)
+		}
 	}
-	return _m
+	return _m, nil
 }
 
 type StorageGoogleCloudSpannerSpec struct {
 	InternalStorageSpec `json:",inline"`
 
-	Database    *string         `json:"database,omitempty"`
-	Table       *string         `json:"table,omitempty"`
-	HaEnabled   *bool           `json:"haEnabled,omitempty"`
-	HaTable     *string         `json:"haTable,omitempty"`
-	Credentials *SecretSelector `json:"credentials,omitempty"`
+	Database    *string            `json:"database,omitempty" hcl:"database"`
+	Table       *string            `json:"table,omitempty" hcl:"table"`
+	HaEnabled   *bool              `json:"haEnabled,omitempty" hcl:"ha_enabled"`
+	HaTable     *string            `json:"haTable,omitempty" hcl:"ha_table"`
+	Credentials *SecretKeySelector `json:"credentials,omitempty"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageGoogleCloudSpannerSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageGoogleCloudSpannerSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageGoogleCloudSpannerSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes, mounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	_, err := s.Credentials.ContainsKey(c, ctx, vaultServer.Namespace)
+	if err != nil {
+		return nil, nil, err
+	}
+	volumes = append(volumes, corev1.Volume{
+		Name: "storage-gcp-credentials",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: s.Credentials.SecretRef.Name,
+				Items: []corev1.KeyToPath{{
+					Key:  s.Credentials.SecretRef.Key,
+					Path: "credentials.json",
+				}},
+			},
+		},
+	})
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      "storage-gcp-credentials",
+		ReadOnly:  true,
+		MountPath: "/gcp/credentials.json",
+		SubPath:   "credentials.json",
+	})
+	return volumes, mounts, nil
 }
 
 func (s *StorageGoogleCloudSpannerSpec) Type() string {
 	return "spanner"
 }
 
-func (s *StorageGoogleCloudSpannerSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.Database != nil {
-		_m["database"] = strconv.Quote(*s.Database)
+func (s *StorageGoogleCloudSpannerSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.Table != nil {
-		_m["table"] = strconv.Quote(*s.Table)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	if s.HaEnabled != nil {
-		_m["ha_enabled"] = strconv.FormatBool(*s.HaEnabled)
-	}
-	if s.HaTable != nil {
-		_m["ha_table"] = strconv.Quote(*s.HaTable)
-	}
-	return _m
 }
 
 type StorageGoogleCloudStorageSpec struct {
 	InternalStorageSpec `json:",inline"`
 
-	Bucket      *string         `json:"bucket,omitempty"`
-	ChunkSize   *datasize.Size  `json:"chunkSize,omitempty"`
-	HaEnabled   *bool           `json:"haEnabled,omitempty"`
-	Credentials *SecretSelector `json:"credentials,omitempty"`
+	Bucket      *string            `json:"bucket,omitempty" hcl:"bucket"`
+	ChunkSize   *datasize.Size     `json:"chunkSize,omitempty" hcl:"chunk_size"`
+	HaEnabled   *bool              `json:"haEnabled,omitempty" hcl:"ha_enabled"`
+	Credentials *SecretKeySelector `json:"credentials,omitempty"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageGoogleCloudStorageSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageGoogleCloudStorageSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageGoogleCloudStorageSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes, mounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	_, err := s.Credentials.ContainsKey(c, ctx, vaultServer.Namespace)
+	if err != nil {
+		return nil, nil, err
+	}
+	volumes = append(volumes, corev1.Volume{
+		Name: "storage-gcp-credentials",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: s.Credentials.SecretRef.Name,
+				Items: []corev1.KeyToPath{{
+					Key:  s.Credentials.SecretRef.Key,
+					Path: "credentials.json",
+				}},
+			},
+		},
+	})
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      "storage-gcp-credentials",
+		ReadOnly:  true,
+		MountPath: "/gcp/credentials.json",
+		SubPath:   "credentials.json",
+	})
+	return volumes, mounts, nil
 }
 
 func (s *StorageGoogleCloudStorageSpec) Type() string {
 	return "gcs"
 }
 
-func (s *StorageGoogleCloudStorageSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.Bucket != nil {
-		_m["bucket"] = strconv.Quote(*s.Bucket)
+func (s *StorageGoogleCloudStorageSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.ChunkSize != nil {
-		_m["chunk_size"] = strconv.FormatInt(int64(s.ChunkSize.Kilobytes()), 10)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	if s.HaEnabled != nil {
-		_m["ha_enabled"] = strconv.FormatBool(*s.HaEnabled)
-	}
-	return _m
 }
 
 type StorageFoundationDbTlsSpec struct {
-	Password    *string         `json:"-"`
-	VerifyPeers *string         `json:"tlsVerifyPeers,omitempty"`
+	Password    *string         `json:"-" hcl:"password"`
+	VerifyPeers *string         `json:"tlsVerifyPeers,omitempty" hcl:"tls_verify_peers"`
 	Certificate *SecretSelector `json:"certificate,omitempty"`
 }
 
-func (s *StorageFoundationDbTlsSpec) MapValue() map[string]any {
+func (s *StorageFoundationDbTlsSpec) Volumes(c *client.Client, ctx context.Context, namespace string) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes, mounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	if s.Certificate == nil {
+		return volumes, mounts, nil
+	}
+	if _, err := s.Certificate.IsKind(c, ctx, namespace, corev1.SecretTypeTLS); err != nil {
+		return nil, nil, err
+	}
+	volumes = append(volumes, corev1.Volume{
+		Name: "storage-foundationdb-tls",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: s.Certificate.SecretRef.Name,
+			},
+		},
+	})
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      "storage-foundationdb-tls",
+		ReadOnly:  true,
+		MountPath: "/foundationdb/tls",
+	})
+	return volumes, mounts, nil
+}
+
+func (s *StorageFoundationDbTlsSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{}
-	if s.VerifyPeers != nil {
-		_m["tls_verify_peers"] = strconv.Quote(*s.VerifyPeers)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
 	if s.Certificate != nil {
 		_m["tls_ca_file"] = strconv.Quote("/foundationdb/tls/ca.crt")
 		_m["tls_cert_file"] = strconv.Quote("/foundationdb/tls/tls.crt")
 		_m["tls_key_file"] = strconv.Quote("/foundationdb/tls/tls.key")
 	}
-	return _m
+	return _m, nil
 }
 
 type StorageFoundationDbSpec struct {
-	ApiVersion  *int32                      `json:"apiVersion,omitempty"`
+	ApiVersion  *int32                      `json:"apiVersion,omitempty" hcl:"api_version"`
 	ClusterFile *SecretKeySelector          `json:"clusterFile"`
 	Tls         *StorageFoundationDbTlsSpec `json:"tls,omitempty"`
-	Path        *string                     `json:"path,omitempty"`
-	HaEnabled   *bool                       `json:"haEnabled,omitempty"`
+	Path        *string                     `json:"path,omitempty" hcl:"path"`
+	HaEnabled   *bool                       `json:"haEnabled,omitempty" hcl:"ha_enabled"`
 }
 
-// Secrets implements ConfigBuilderHelper.
 func (s *StorageFoundationDbSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	if s.Tls == nil || s.Tls.Password == nil {
+		return nil
+	}
+	t := types.NamespacedName{Name: s.Tls.Certificate.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+
+	secretMappings := utils.SecretKvMapping{
+		"tls_password": {Dest: s.Tls.Password, Mandatory: false},
+	}
+	secretMappings.Apply(&secret, "StorageFoundationDbSpec.Tls.Password")
+	return nil
 }
 
-// Volumes implements ConfigBuilderHelper.
-func (s *StorageFoundationDbSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageFoundationDbSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes, mounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	if s.Tls == nil {
+		return volumes, mounts, nil
+	}
+	v, m, err := s.Tls.Volumes(c, ctx, vaultServer.Namespace)
+	if err != nil {
+		return nil, nil, err
+	}
+	volumes, mounts = append(volumes, v...), append(mounts, m...)
+
+	if _, err := s.ClusterFile.IsKind(c, ctx, vaultServer.Namespace, corev1.SecretTypeOpaque); err != nil {
+		return nil, nil, err
+	}
+	if _, err := s.ClusterFile.ContainsKey(c, ctx, vaultServer.Namespace); err != nil {
+		return nil, nil, err
+	}
+	volumes = append(volumes, corev1.Volume{
+		Name: "storage-foundation-cluster-file",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: s.ClusterFile.SecretRef.Name,
+				Items: []corev1.KeyToPath{{
+					Key:  s.ClusterFile.SecretRef.Key,
+					Path: "fdb.cluster",
+				}},
+			},
+		},
+	})
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      "storage-foundation-cluster-file",
+		ReadOnly:  true,
+		MountPath: "/foundation/fdb.cluster",
+		SubPath:   "fdb.cluster",
+	})
+	return volumes, mounts, nil
 }
 
 func (s *StorageFoundationDbSpec) Type() string {
 	return "foundationdb"
 }
 
-func (s *StorageFoundationDbSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.ClusterFile != nil {
-		_m["bucket"] = strconv.Quote("/foundationdb/vault.cluster")
+func (s *StorageFoundationDbSpec) MapValue() (map[string]any, error) {
+	_m := map[string]any{
+		"cluster_file": strconv.Quote("/foundationdb/vault.cluster"),
 	}
-	if s.Path != nil {
-		_m["path"] = strconv.Quote(*s.Path)
-	}
-	if s.ApiVersion != nil {
-		_m["api_version"] = strconv.FormatInt(int64(*s.ApiVersion), 10)
-	}
-	if s.HaEnabled != nil {
-		_m["ha_enabled"] = strconv.FormatBool(*s.HaEnabled)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
 	if s.Tls != nil {
-		maps.Copy(_m, s.Tls.MapValue())
+		if _s, err := s.Tls.MapValue(); err != nil {
+			return nil, err
+		} else {
+			maps.Copy(_m, _s)
+		}
 	}
-	return _m
+	return _m, nil
 }
 
 type StorageAerospikeSpec struct {
-	Username    *string         `json:"-"`
-	Password    *string         `json:"-"`
-	Hostname    *string         `json:"hostname,omitempty"`
-	Port        *int32          `json:"port,omitempty"`
+	Username    *string         `json:"-" hcl:"username"`
+	Password    *string         `json:"-" hcl:"password"`
+	Hostname    *string         `json:"hostname,omitempty" hcl:"hostname"`
+	Port        *int32          `json:"port,omitempty" hcl:"port"`
 	HostList    []string        `json:"hostList,omitempty"`
-	Namepace    *string         `json:"namespace,omitempty"`
-	Set         *string         `json:"set,omitempty"`
-	ClusterName *string         `json:"clusterName,omitempty"`
-	Timeout     *int32          `json:"timeout,omitempty"`
-	IdleTImeout *int32          `json:"idleTImeout,omitempty"`
+	Namepace    *string         `json:"namespace,omitempty" hcl:"namespace"`
+	Set         *string         `json:"set,omitempty" hcl:"set"`
+	ClusterName *string         `json:"clusterName,omitempty" hcl:"cluster_name"`
+	Timeout     *int32          `json:"timeout,omitempty" hcl:"timeout"`
+	IdleTImeout *int32          `json:"idleTImeout,omitempty" hcl:"idle_t_imeout"`
 	Credentials *SecretSelector `json:"credentials,omitempty"`
 
 	// +kubebuilder:validation:Enum=INTERNAL;EXTERNAL
-	AuthMode *string `json:"authMode,omitempty"`
+	AuthMode *string `json:"authMode,omitempty" hcl:"auth_mode"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageAerospikeSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"username": {Dest: s.Username, Mandatory: true},
+		"password": {Dest: s.Password, Mandatory: true},
+	}
+	secretMappings.Apply(&secret, "StorageAerospikeSpec.Credentials")
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageAerospikeSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageAerospikeSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StorageAerospikeSpec) Type() string {
 	return "aerospike"
 }
 
-func (s *StorageAerospikeSpec) MapValue() map[string]any {
+func (s *StorageAerospikeSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{}
-	if s.Hostname != nil {
-		_m["hostname"] = strconv.Quote(*s.Hostname)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
-	if s.Username != nil {
-		_m["username"] = strconv.Quote(*s.Username)
-	}
-	if s.Password != nil {
-		_m["password"] = strconv.Quote(*s.Password)
-	}
-	if s.Port != nil {
-		_m["port"] = strconv.Quote(strconv.FormatInt(int64(*s.Port), 10))
-	}
-	if len(s.HostList) > 0 {
-		_m["hostlist"] = strconv.Quote(strings.Join(s.HostList, ","))
-	}
-	if s.ClusterName != nil {
-		_m["cluster_name"] = strconv.Quote(*s.ClusterName)
-	}
-	if s.AuthMode != nil {
-		_m["auth_mode"] = strconv.Quote(*s.AuthMode)
-	}
-	if s.Timeout != nil {
-		_m["timeout"] = strconv.FormatInt(int64(*s.Timeout), 10)
-	}
-	if s.IdleTImeout != nil {
-		_m["idle_timeout"] = strconv.FormatInt(int64(*s.IdleTImeout), 10)
-	}
-	if s.Credentials != nil {
-		_m["username"] = strconv.Quote("TODO")
-		_m["password"] = strconv.Quote("TODO")
-	}
-	return _m
+	return _m, nil
 }
 
 type StorageAlicloudOssSpec struct {
 	InternalStorageSpec `json:",inline"`
-	AccessKey           *string         `json:"-"`
-	SecretKey           *string         `json:"-"`
-	Bucket              *string         `json:"bucket,omitempty"`
-	Endpoint            *string         `json:"endpoint,omitempty"`
+	AccessKey           *string         `json:"-" hcl:"access_key"`
+	SecretKey           *string         `json:"-" hcl:"secret_key"`
+	Bucket              *string         `json:"bucket,omitempty" hcl:"bucket"`
+	Endpoint            *string         `json:"endpoint,omitempty" hcl:"endpoint"`
 	Credentials         *SecretSelector `json:"credentials,omitempty"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageAlicloudOssSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"access_key": {Dest: s.AccessKey, Mandatory: true},
+		"secret_key": {Dest: s.SecretKey, Mandatory: true},
+	}
+	return secretMappings.Apply(&secret, "StorageAlicloudOssSpec.Credentials")
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageAlicloudOssSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageAlicloudOssSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StorageAlicloudOssSpec) Type() string {
 	return "alicloudoss"
 }
 
-func (s *StorageAlicloudOssSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.Endpoint != nil {
-		_m["endpoint"] = strconv.Quote(*s.Endpoint)
+func (s *StorageAlicloudOssSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.AccessKey != nil {
-		_m["access_key"] = strconv.Quote(*s.AccessKey)
-	}
-	if s.SecretKey != nil {
-		_m["secret_key"] = strconv.Quote(*s.SecretKey)
-	}
-	if s.Bucket != nil {
-		_m["bucket"] = strconv.Quote(*s.Bucket)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	return _m
 }
 
 type StorageAzureSpec struct {
 	InternalStorageSpec `json:",inline"`
-	AccountKey          *string         `json:"-"`
-	AccountName         *string         `json:"accountName"`
-	Container           *string         `json:"container"`
-	Environment         *string         `json:"environment,omitempty"`
-	ArmEndpoint         *string         `json:"armEndpoint,omitempty"`
+	AccountKey          *string         `json:"-" hcl:"access_key"`
+	AccountName         *string         `json:"accountName" hcl:"account_name"`
+	Container           *string         `json:"container" hcl:"container"`
+	Environment         *string         `json:"environment,omitempty" hcl:"environment"`
+	ArmEndpoint         *string         `json:"armEndpoint,omitempty" hcl:"arm_endpoint"`
 	Credentials         *SecretSelector `json:"credentials,omitempty"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageAzureSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"accountKey": {Dest: s.AccountKey, Mandatory: true},
+	}
+	return secretMappings.Apply(&secret, "StorageAzureSpec.Credentials")
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageAzureSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageAzureSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StorageAzureSpec) Type() string {
 	return "alicloudoss"
 }
 
-func (s *StorageAzureSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if s.AccountName != nil {
-		_m["accountName"] = strconv.Quote(*s.AccountName)
+func (s *StorageAzureSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.AccountKey != nil {
-		_m["accountKey"] = strconv.Quote(*s.AccountKey)
-	}
-	if s.Container != nil {
-		_m["container"] = strconv.Quote(*s.Container)
-	}
-	if s.Environment != nil {
-		_m["environment"] = strconv.Quote(*s.Environment)
-	}
-	if s.ArmEndpoint != nil {
-		_m["arm_endpoint"] = strconv.Quote(*s.ArmEndpoint)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	return _m
 }
 
 type PemBundleCassandraSpec struct {
@@ -1237,323 +1435,310 @@ type PemBundleCassandraSpec struct {
 	Credentials *SecretKeySelector `json:"file,omitempty"`
 }
 
+func (in *PemBundleCassandraSpec) Volumes(c *client.Client, ctx context.Context, namespace string) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes, mounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	if _, err := in.Credentials.ContainsKey(c, ctx, namespace); err != nil {
+		return nil, nil, err
+	}
+	target_file := "cert.json"
+	if in.Type == "bundle" {
+		target_file = "cert.pem"
+	}
+	volumes = append(volumes, corev1.Volume{
+		Name: "storage-cassandra-pem-file",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: in.Credentials.SecretRef.Name,
+				Items: []corev1.KeyToPath{{
+					Key:  in.Credentials.SecretRef.Key,
+					Path: target_file,
+				}},
+			},
+		},
+	})
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      "storage-cassandra-pem-file",
+		ReadOnly:  true,
+		MountPath: fmt.Sprintf("/cassandra/%s", target_file),
+		SubPath:   target_file,
+	})
+	return volumes, mounts, nil
+}
+
 type StorageCassandraSpec struct {
 	InternalStorageSpec `json:",inline"`
 
-	Username                 *string                 `json:"-"`
-	Password                 *string                 `json:"-"`
-	Keyspace                 *string                 `json:"keyspace,omitempty"`
-	Table                    *string                 `json:"table,omitempty"`
-	ProtocolVersion          *int32                  `json:"protocolVersion,omitempty"`
-	DisableInitialHostLookup *bool                   `json:"disableInitialHostLookup,omitempty"`
-	InitialConnectionTimeout *int32                  `json:"initialConnectionTimeout,omitempty"`
-	ConnectionTimeout        *int32                  `json:"connectionTimeout,omitempty"`
-	SimpleRetryPolicyRetries *int32                  `json:"simpleRetryPolicyRetries,omitempty"`
-	TlsSkipVerify            *int32                  `json:"tlsSkipVerify,omitempty"`
-	Tls                      *int32                  `json:"tls,omitempty"`
-	TlsMinVersion            *TLSVersion             `json:"tlsMinVersion,omitempty"`
+	Username                 *string                 `json:"-" hcl:"username"`
+	Password                 *string                 `json:"-" hcl:"password"`
+	Keyspace                 *string                 `json:"keyspace,omitempty" hcl:"keyspace"`
+	Table                    *string                 `json:"table,omitempty" hcl:"table"`
+	ProtocolVersion          *int32                  `json:"protocolVersion,omitempty" hcl:"protocol_version"`
+	DisableInitialHostLookup *bool                   `json:"disableInitialHostLookup,omitempty" hcl:"disable_initial_host_lookup"`
+	InitialConnectionTimeout *int32                  `json:"initialConnectionTimeout,omitempty" hcl:"initial_connection_timeout"`
+	ConnectionTimeout        *int32                  `json:"connectionTimeout,omitempty" hcl:"connection_timeout"`
+	SimpleRetryPolicyRetries *int32                  `json:"simpleRetryPolicyRetries,omitempty" hcl:"simple_retry_policy_retries"`
+	TlsSkipVerify            *int32                  `json:"tlsSkipVerify,omitempty" hcl:"tls_skip_verify"`
+	Tls                      *int32                  `json:"tls,omitempty" hcl:"tls"`
+	TlsMinVersion            *TLSVersion             `json:"tlsMinVersion,omitempty" hcl:"tls_min_version"`
 	Pem                      *PemBundleCassandraSpec `json:"pem,omitempty"`
 	Credentials              *SecretSelector         `json:"credentials,omitempty"`
 	// +kubebuilder:validation:Enum=ANY;ONE;TWO;THREE;QUORUM;ALL;LOCAL_QUORUM;EACH_QUORUM;LOCAL_ONE
-	Consistency string `json:"consistency,omitempty"`
+	Consistency string `json:"consistency,omitempty" hcl:"consistency"`
 	// +kubebuilder:validation:MinItems=1
 	Hosts []string `json:"hosts,omitempty"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageCassandraSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"username": {Dest: s.Username, Mandatory: true},
+		"password": {Dest: s.Password, Mandatory: true},
+	}
+	secretMappings.Apply(&secret, "StorageCassandraSpec.Credentials")
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageCassandraSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageCassandraSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	volumes, mounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	if s.Pem == nil {
+		return volumes, mounts, nil
+	}
+	return s.Pem.Volumes(c, ctx, vaultServer.Namespace)
 }
 
 func (s *StorageCassandraSpec) Type() string {
 	return "cassandra"
 }
 
-func (s *StorageCassandraSpec) MapValue() map[string]any {
+func (s *StorageCassandraSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{}
+
+	if s.Pem != nil && s.Pem.Type == "json" {
+		_m["pem_json_file"] = strconv.Quote("/cassandra/cert.json")
+	}
+	if s.Pem != nil && s.Pem.Type == "json" {
+		_m["pem_bundle_file"] = strconv.Quote("/cassandra/cert.pem")
+	}
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
+	}
 
 	if len(s.Hosts) > 0 {
 		_m["hosts"] = strconv.Quote(strings.Join(s.Hosts, ","))
 	}
-	if s.Username != nil {
-		_m["username"] = strconv.Quote(*s.Username)
-	}
-	if s.Password != nil {
-		_m["password"] = strconv.Quote(*s.Password)
-	}
-	if s.Keyspace != nil {
-		_m["keyspace"] = strconv.Quote(*s.Keyspace)
-	}
-	if s.Keyspace != nil {
-		_m["keyspace"] = strconv.Quote(*s.Keyspace)
-	}
-	if s.Table != nil {
-		_m["table"] = strconv.Quote(*s.Table)
-	}
-	if s.DisableInitialHostLookup != nil {
-		_m["disable_initial_host_lookup"] = strconv.FormatBool(*s.DisableInitialHostLookup)
-	}
-	if s.InitialConnectionTimeout != nil {
-		_m["initial_connection_timeout"] = strconv.FormatInt(int64(*s.InitialConnectionTimeout), 10)
-	}
-	if s.ConnectionTimeout != nil {
-		_m["connection_timeout"] = strconv.FormatInt(int64(*s.ConnectionTimeout), 10)
-	}
-	if s.SimpleRetryPolicyRetries != nil {
-		_m["simple_retry_policy_retries"] = strconv.FormatInt(int64(*s.SimpleRetryPolicyRetries), 10)
-	}
-	if s.Tls != nil {
-		_m["tls"] = strconv.FormatInt(int64(*s.Tls), 10)
-	}
-	if s.TlsSkipVerify != nil {
-		_m["tls_skip_verify"] = strconv.FormatInt(int64(*s.TlsSkipVerify), 10)
-	}
-	if s.TlsMinVersion != nil {
-		_m["tls_min_version"] = strconv.Quote(string(*s.TlsMinVersion))
-	}
-	if s.Credentials != nil {
-		_m["username"] = strconv.Quote("TODO")
-		_m["password"] = strconv.Quote("TODO")
-	}
 
-	if s.Pem.Type == "json" {
-		_m["pem_json_file"] = strconv.Quote("/cassandra/cert.json")
-	}
-	if s.Pem.Type == "json" {
-		_m["pem_bundle_file"] = strconv.Quote("/cassandra/cert.pem")
-	}
-	return _m
+	return _m, nil
 }
 
 type StorageCockroachDBSpec struct {
 	InternalStorageSpec `json:",inline"`
 
-	ConnectionUrl       *string            `json:"-"`
+	ConnectionUrl       *string            `json:"-" hcl:"connection_url"`
 	ConnectionUrlSecret *SecretKeySelector `json:"connectionUrl"`
-	Table               *string            `json:"table,omitempty"`
-	HaEnabled           *bool              `json:"haEnabled,omitempty"`
-	HaTable             *string            `json:"haTable,omitempty"`
+	Table               *string            `json:"table,omitempty" hcl:"table"`
+	HaEnabled           *bool              `json:"haEnabled,omitempty" hcl:"ha_enabled"`
+	HaTable             *string            `json:"haTable,omitempty" hcl:"ha_table"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageCockroachDBSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.ConnectionUrlSecret.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"connection_url": {Dest: s.ConnectionUrl, Mandatory: true},
+	}
+	return secretMappings.Apply(&secret, "StorageCockroachDBSpec.Credentials")
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageCockroachDBSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageCockroachDBSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StorageCockroachDBSpec) Type() string {
 	return "cockroachdb"
 }
 
-func (s *StorageCockroachDBSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-
-	if s.MaxParallel != nil {
-		_m["hosts"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
+func (s *StorageCockroachDBSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.Table != nil {
-		_m["table"] = strconv.Quote(*s.Table)
-	}
-	if s.HaEnabled != nil {
-		_m["ha_enabled"] = strconv.FormatBool(*s.HaEnabled)
-	}
-	if s.HaTable != nil {
-		_m["ha_table"] = strconv.Quote(*s.HaTable)
-	}
-	if s.ConnectionUrl != nil {
-		_m["connection_url"] = strconv.Quote("TODO")
-	}
-	return _m
 }
 
 type StorageCouchDBSpec struct {
 	InternalStorageSpec `json:",inline"`
 
-	Username    *string         `json:"-"`
-	Password    *string         `json:"-"`
-	Endpoint    *string         `json:"endpoint"`
+	Username    *string         `json:"-" hcl:"username"`
+	Password    *string         `json:"-" hcl:"password"`
+	Endpoint    *string         `json:"endpoint" hcl:"endpoint"`
 	Credentials *SecretSelector `json:"credentials"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageCouchDBSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	t := types.NamespacedName{Name: s.Credentials.SecretRef.Name, Namespace: vaultServer.Namespace}
+	var secret corev1.Secret
+	if err := (*c).Get(ctx, t, &secret); err != nil {
+		return err
+	}
+	secretMappings := utils.SecretKvMapping{
+		"username": {Dest: s.Username, Mandatory: true},
+		"password": {Dest: s.Password, Mandatory: true},
+	}
+	secretMappings.Apply(&secret, "StorageCouchDBSpec.Credentials")
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageCouchDBSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageCouchDBSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StorageCouchDBSpec) Type() string {
 	return "couchdb"
 }
 
-func (s *StorageCouchDBSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-
-	if s.Endpoint != nil {
-		_m["endpoint"] = strconv.Quote(*s.Endpoint)
+func (s *StorageCouchDBSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.Username != nil {
-		_m["username"] = strconv.Quote(*s.Username)
-	}
-	if s.Password != nil {
-		_m["password"] = strconv.Quote(*s.Password)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	return _m
 }
 
 type StorageConsulSpec struct {
 	InternalStorageSpec `json:",inline"`
 	ConsulSpec          `json:",inline"`
 
-	Path         *string          `json:"path,omitempty"`
-	SessionTTL   *metav1.Duration `json:"sessionTtl,omitempty"`
-	LockWaitTime *metav1.Duration `json:"lockWaitTime,omitempty"`
+	Path         *string          `json:"path,omitempty" hcl:"path"`
+	SessionTTL   *metav1.Duration `json:"sessionTtl,omitempty" hcl:"session_ttl"`
+	LockWaitTime *metav1.Duration `json:"lockWaitTime,omitempty" hcl:"lock_wait_time"`
 	// +kubebuilder:validation:Enum=default;strong
-	ConsistencyMode *string `json:"consistencyMode,omitempty"`
+	ConsistencyMode *string `json:"consistencyMode,omitempty" hcl:"consistency_mode"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageConsulSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	return s.ConsulSpec.Secrets(c, ctx, vaultServer)
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageConsulSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageConsulSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return s.ConsulSpec.Volumes(c, ctx, vaultServer)
 }
 
 func (s *StorageConsulSpec) Type() string {
 	return "consul"
 }
 
-func (s *StorageConsulSpec) MapValue() map[string]any {
+func (s *StorageConsulSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{}
-
-	if s.ConsistencyMode != nil {
-		_m["consistency_mode"] = strconv.Quote(*s.ConsistencyMode)
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
+	if _s, err := s.ConsulSpec.MapValue(); err != nil {
+		return nil, err
+	} else {
+		maps.Copy(_m, _s)
 	}
-	if s.Path != nil {
-		_m["path"] = strconv.Quote(*s.Path)
-	}
-	if s.SessionTTL != nil {
-		_m["session_ttl"] = strconv.Quote(fmt.Sprintf("%d", s.SessionTTL.Duration))
-	}
-	if s.LockWaitTime != nil {
-		_m["lock_wait_time"] = strconv.Quote(fmt.Sprintf("%ds", s.LockWaitTime.Duration))
-	}
-	maps.Copy(_m, s.ConsulSpec.MapValue())
-	return _m
+	return _m, nil
 }
 
-type StorageInMemSpec struct {
-}
+type StorageInMemSpec struct{}
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageInMemSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageInMemSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageInMemSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StorageInMemSpec) Type() string {
 	return "inmem"
 }
 
-func (s *StorageInMemSpec) MapValue() map[string]any {
-	return map[string]any{}
+func (s *StorageInMemSpec) MapValue() (map[string]any, error) {
+	return map[string]any{}, nil
 }
 
 type StorageFileSystemSpec struct {
-	Path string `json:"-"`
+	Path string `json:"-" hcl:"path"`
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageFileSystemSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageFileSystemSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageFileSystemSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	mounts := []corev1.VolumeMount{
+		{
+			Name:      vaultServer.Spec.PersistentVolumeClaim.Spec.VolumeName,
+			MountPath: "/data",
+		},
+	}
+	return []corev1.Volume{}, mounts, nil
 }
 
 func (s *StorageFileSystemSpec) Type() string {
 	return "file"
 }
 
-func (s *StorageFileSystemSpec) MapValue() map[string]any {
+func (s *StorageFileSystemSpec) MapValue() (map[string]any, error) {
 	return map[string]any{
 		"path": strconv.Quote("/data/"),
-	}
+	}, nil
 }
 
 type StorageMantaSpec struct {
 	InternalStorageSpec `json:",inline"`
-	Directory           *string `json:"directory"`
-	User                *string `json:"user"`
-	KeyId               *string `json:"keyId"`
-	SubUser             *string `json:"subUser"`
-	URL                 *string `json:"url"`
-	//TODO:AddSSHKeyForAgent
+	Directory           *string `json:"directory" hcl:"directory"`
+	User                *string `json:"user" hcl:"user"`
+	KeyId               *string `json:"keyId" hcl:"key_id"`
+	SubUser             *string `json:"subUser" hcl:"sub_user"`
+	URL                 *string `json:"url" hcl:"url"`
+	// TODO AddSSHKeyForAgent
 }
 
 // Secrets implements ConfigBuilderHelper.
 func (s *StorageMantaSpec) Secrets(c *client.Client, ctx context.Context, vaultServer *VaultServer) error {
-	panic("unimplemented")
+	return nil
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *StorageMantaSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	panic("unimplemented")
+func (s *StorageMantaSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *StorageMantaSpec) Type() string {
 	return "manta"
 }
 
-func (s *StorageMantaSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-
-	if s.Directory != nil {
-		_m["directory"] = strconv.Quote(*s.Directory)
+func (s *StorageMantaSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.User != nil {
-		_m["user"] = strconv.Quote(*s.User)
-	}
-	if s.KeyId != nil {
-		_m["key_id"] = strconv.Quote(*s.KeyId)
-	}
-	if s.SubUser != nil {
-		_m["subuser"] = strconv.Quote(*s.SubUser)
-	}
-	if s.URL != nil {
-		_m["url"] = strconv.Quote(*s.URL)
-	}
-	if s.MaxParallel != nil {
-		_m["max_parallel"] = strconv.FormatInt(int64(*s.MaxParallel), 10)
-	}
-	return _m
 }
 
 // #endregion

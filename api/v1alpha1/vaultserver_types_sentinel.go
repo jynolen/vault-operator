@@ -17,26 +17,45 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"fmt"
-	"strconv"
-	"strings"
+	"bytes"
+	"regexp"
+	"text/template"
 
+	"github.com/Masterminds/sprig/v3"
 	"github.com/jynolen/vault-operator/internal/utils"
 )
 
 // #region SentinelSpec
 // Resource Specification Specific to Sentinel
 
+const sentinelHclTempate = `
+sentinel {
+    {{ range $key,$val := .MapValue }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+}
+`
+
 type SentinelSpec struct {
-	AdditionalEnabledModules []string `json:"additionalEnabledModules,omitempty"`
+	AdditionalEnabledModules []string `json:"additionalEnabledModules,omitempty" hcl:"additional_enabled_modules"`
 }
 
-func (s *SentinelSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if len(s.AdditionalEnabledModules) > 0 {
-		_m["additional_enabled_modules"] = fmt.Sprintf("[%s]", strings.Join(utils.Map(strconv.Quote, s.AdditionalEnabledModules), ","))
+func (s *SentinelSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	return _m
+}
+
+func (s *SentinelSpec) HclRender() (string, error) {
+	var buf bytes.Buffer
+	template := template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Parse(sentinelHclTempate))
+	if err := template.Execute(&buf, s); err != nil {
+		return "", err
+	}
+	re := regexp.MustCompile(`\n\s*\n`)
+	return re.ReplaceAllString(buf.String(), "\n"), nil
 }
 
 // #endregion

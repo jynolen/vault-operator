@@ -22,10 +22,9 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/jynolen/vault-operator/test/utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	"github.com/jynolen/vault-operator/test/utils"
 )
 
 var (

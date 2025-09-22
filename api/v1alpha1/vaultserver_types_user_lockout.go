@@ -17,34 +17,51 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"fmt"
-	"strconv"
+	"bytes"
+	"errors"
+	"regexp"
+	"text/template"
 
+	"github.com/Masterminds/sprig/v3"
+	"github.com/jynolen/vault-operator/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const userLockoutHclTemplate = `
+{{ range $_, $val := . }}
+user_lockout "{{ $val.Type }}"{
+    {{ range $k,$v := $val }}
+    {{ $k }} = {{ $v }}
+    {{ end}}
+}
+{{ end }}
+`
+
 type InternalUserLockoutSpec struct {
-	Threshold      *int32           `json:"threshold,omitempty"`
-	Duration       *metav1.Duration `json:"duration,omitempty"`
-	CounterReset   *metav1.Duration `json:"counterReset,omitempty"`
-	DisableLockout *bool            `json:"disableLockout,omitempty"`
+	Threshold      *int32           `json:"threshold,omitempty" hcl:"lockout_threshold"`
+	Duration       *metav1.Duration `json:"duration,omitempty" hcl:"lockout_duration"`
+	CounterReset   *metav1.Duration `json:"counterReset,omitempty" hcl:"lockout_counter_reset"`
+	DisableLockout *bool            `json:"disableLockout,omitempty" hcl:"disable_lockout"`
 }
 
-func (s *InternalUserLockoutSpec) MapValue() map[string]any {
-	m := map[string]any{}
-	if s.Threshold != nil {
-		m["lockout_threshold"] = strconv.Quote(strconv.FormatInt(int64(*s.Threshold), 10))
+func (s *InternalUserLockoutSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*s); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if s.Duration != nil {
-		m["lockout_duration"] = fmt.Sprintf("%s", s.Duration.Duration)
+}
+
+type UserLockoutList []UserLockoutSpec
+
+func (s *UserLockoutList) HclRender() (string, error) {
+	var buf bytes.Buffer
+	template := template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Parse(userLockoutHclTemplate))
+	if err := template.Execute(&buf, s); err != nil {
+		return "", err
 	}
-	if s.Duration != nil {
-		m["lockout_counter_reset"] = fmt.Sprintf("%s", s.CounterReset.Duration)
-	}
-	if s.Duration != nil {
-		m["disable_lockout"] = strconv.FormatBool(*s.DisableLockout)
-	}
-	return m
+	re := regexp.MustCompile(`\n\s*\n`)
+	return re.ReplaceAllString(buf.String(), "\n"), nil
 }
 
 type UserLockoutSpec struct {
@@ -54,19 +71,34 @@ type UserLockoutSpec struct {
 	AppRole  *InternalUserLockoutSpec `json:"appRole,omitempty"`
 }
 
-func (s *UserLockoutSpec) ListMapValue() map[string]map[string]any {
-	_m := map[string]map[string]any{}
+func (s *UserLockoutSpec) Type() string {
 	if s.All != nil {
-		_m["all"] = s.All.MapValue()
+		return "all"
 	}
 	if s.UserPass != nil {
-		_m["userpass"] = s.UserPass.MapValue()
+		return "userpass"
 	}
 	if s.LDAP != nil {
-		_m["ldap"] = s.LDAP.MapValue()
+		return "ldap"
 	}
 	if s.AppRole != nil {
-		_m["approle"] = s.AppRole.MapValue()
+		return "approle"
 	}
-	return _m
+	return ""
+}
+
+func (s *UserLockoutSpec) MapValue() (map[string]any, error) {
+	if s.All != nil {
+		return s.All.MapValue()
+	}
+	if s.UserPass != nil {
+		return s.UserPass.MapValue()
+	}
+	if s.LDAP != nil {
+		return s.LDAP.MapValue()
+	}
+	if s.AppRole != nil {
+		return s.AppRole.MapValue()
+	}
+	return nil, errors.New("Undefined UserLockout")
 }

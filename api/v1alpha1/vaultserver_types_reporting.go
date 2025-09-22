@@ -17,50 +17,66 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"fmt"
-	"strconv"
+	"bytes"
+	"regexp"
+	"text/template"
 
+	"github.com/Masterminds/sprig/v3"
+	"github.com/jynolen/vault-operator/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// #region ReportingSpec
-// Resource Specification Specific to Reporting
+const reportingHclTemplate = `
+reporting {
+    {{ range $key,$val := .MapValue }}
+    {{ $key }} = {{ $val }}
+    {{ end}}
+    {{ if .License }}
+    license {
+        {{ range $key,$val := .License.MapValue }}
+        {{ $key }} = {{ $val }}
+        {{ end}}
+    }
+    {{ end}}
+}
+`
 
 type ReportingLicenseSpec struct {
-	Enabled               *bool  `json:"enabled,omitempty"`
-	BillingStartTimestamp *int32 `json:"billingStartTimestamp,omitempty"`
-	DevelopmentCluster    *bool  `json:"developmentCluster,omitempty"`
+	Enabled               *bool  `json:"enabled,omitempty" hcl:"enabled"`
+	BillingStartTimestamp *int32 `json:"billingStartTimestamp,omitempty" hcl:"billing_start_timestamp"`
+	DevelopmentCluster    *bool  `json:"developmentCluster,omitempty" hcl:"development_cluster"`
 }
 
-func (r *ReportingLicenseSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if r.DevelopmentCluster != nil {
-		_m["development_cluster"] = strconv.FormatBool(*r.DevelopmentCluster)
+func (r *ReportingLicenseSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*r); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if r.Enabled != nil {
-		_m["enabled"] = strconv.FormatBool(*r.Enabled)
-	}
-	if r.BillingStartTimestamp != nil {
-		_m["billing_start_timestamp"] = strconv.FormatInt(int64(*r.BillingStartTimestamp), 10)
-	}
-	return _m
 }
 
 type ReportingSpec struct {
-	SnapshotRetentionTime        *metav1.Duration      `json:"snapshotRetentionTime,omitempty"`
-	DisableProductUsageReporting *bool                 `json:"disableProductUsageReporting,omitempty"`
+	SnapshotRetentionTime        *metav1.Duration      `json:"snapshotRetentionTime,omitempty" hcl:"snapshot_retention_time"`
+	DisableProductUsageReporting *bool                 `json:"disableProductUsageReporting,omitempty" hcl:"disable_product_usage_reporting"`
 	License                      *ReportingLicenseSpec `json:"license,omitempty"`
 }
 
-func (r *ReportingSpec) MapValue() map[string]any {
-	_m := map[string]any{}
-	if r.SnapshotRetentionTime != nil {
-		_m["snapshot_retention_time"] = strconv.Quote(fmt.Sprintf("%s", r.SnapshotRetentionTime.Duration))
+func (r *ReportingSpec) MapValue() (map[string]any, error) {
+	if _s, err := utils.HclExport(*r); err != nil {
+		return nil, err
+	} else {
+		return _s, nil
 	}
-	if r.DisableProductUsageReporting != nil {
-		_m["disable_product_usage_reporting"] = strconv.FormatBool(*r.DisableProductUsageReporting)
+}
+
+func (r *ReportingSpec) HclRender() (string, error) {
+	var buf bytes.Buffer
+	template := template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Parse(reportingHclTemplate))
+	if err := template.Execute(&buf, r); err != nil {
+		return "", err
 	}
-	return _m
+	re := regexp.MustCompile(`\n\s*\n`)
+	return re.ReplaceAllString(buf.String(), "\n"), nil
 }
 
 // #endregion
