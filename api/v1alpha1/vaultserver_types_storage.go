@@ -52,15 +52,29 @@ storage "{{ .Type }}" {
     {{ $key }} = {{ $val }}
         {{ end }}
     {{ end }}
-    {{ if eq .Type "raft" }}
-        {{ range .Raft.RetryJoin }}  
-    retry_join {
-            {{ range $key,$val := .MapValue }}
-        {{ $key }} = {{ $val }}
+}
+`
+
+const raftStorageHclTempate = `
+storage "{{ .Type }}" {
+    {{ range $key,$val := .MapValue }}
+        {{ if $val | typeIs "map[string]string" }}
+    {{ $key }} = { 
+            {{ range $k,$v := $val }}
+        {{ $k }} = {{ $v }}
             {{ end }}
     }
+        {{ else }}
+    {{ $key }} = {{ $val }}
         {{ end }}
     {{ end }}
+	{{ range .Raft.RetryJoin }}  
+    retry_join {
+		{{ range $key,$val := .MapValue }}
+        {{ $key }} = {{ $val }}
+		{{ end }}
+    }
+	{{ end }}
 }
 `
 
@@ -90,6 +104,8 @@ type StorageSpec struct {
 	S3                 *StorageS3Spec                 `json:"s3,omitempty"`
 	Swift              *StorageSwiftSpec              `json:"swift,omitempty"`
 	ZooKeeper          *StorageZooKeeperSpec          `json:"zooKeeper,omitempty"`
+	// ZooKeeper2          *StorageZooKeeperSpec
+
 }
 
 func (s *StorageSpec) Type() string {
@@ -183,7 +199,11 @@ func (s *StorageSpec) internalStorage() ConfigBuilderHelper {
 
 func (s *StorageSpec) HclRender() (string, error) {
 	var buf bytes.Buffer
-	template := template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Parse(storageHclTempate))
+	templateToUse := storageHclTempate
+	if s.Raft != nil {
+		templateToUse = raftStorageHclTempate
+	}
+	template := template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Parse(templateToUse))
 	if err := template.Execute(&buf, s); err != nil {
 		return "", err
 	}

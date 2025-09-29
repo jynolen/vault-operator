@@ -1,7 +1,7 @@
 version: "3"
 
 vars:
-  LOCALBIN: '{{ printf "%s/bin" .USER_WORKING_DIR }}'
+  LOCALBIN: '{{ printf "%s/.bin" .USER_WORKING_DIR }}'
   ENVTEST_VERSION:  '{{ .ENVTEST_VERSION | default "release-0.22" }}'
   ENVTEST_K8S_VERSION: '{{ .ENVTEST_K8S_VERSION | default "1.33.0" }}'
   GOLANGCI_LINT_VERSION: '{{ .GOLANGCI_LINT_VERSION | default "v2.4.0" }}'

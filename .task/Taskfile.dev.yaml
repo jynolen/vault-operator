@@ -1,7 +1,7 @@
 version: "3"
 
 vars:
-  LOCALBIN: '{{ printf "%s/bin" .USER_WORKING_DIR }}'
+  LOCALBIN: '{{ printf "%s/.bin" .USER_WORKING_DIR }}'
   KIND_CLUSTER: '{{ .KIND_CLUSTER | default "kind-vault-operator" }}'
 
 includes:
@@ -19,9 +19,13 @@ tasks:
     deps:
       - deps:go:controller-gen:install
     cmds:
-      - "{{ .LOCALBIN }}/controller-gen paths='{{ .USER_WORKING_DIR }}/...'  rbac:roleName=manager-role crd webhook output:crd:artifacts:config={{ .USER_WORKING_DIR }}/config/crd/bases"
-      - "{{ .LOCALBIN }}/controller-gen  paths='{{ .USER_WORKING_DIR }}/...' object:headerFile='{{ .USER_WORKING_DIR }}/hack/boilerplate.go.txt'"
-
+      - "{{ .LOCALBIN }}/controller-gen paths='{{ .USER_WORKING_DIR }}/...'  rbac:roleName=manager-role crd webhook object:headerFile='{{ .USER_WORKING_DIR }}/hack/boilerplate.go.txt' output:crd:artifacts:config={{ .USER_WORKING_DIR }}/config/crd/bases"
+    sources:
+      - api/**/*.go
+      - exclude: api/**/zz_generated.deepcopy.go
+    generates:
+      - api/**/zz_generated.deepcopy.go
+      - config/crd/bases/*.yaml
   fmt:
     desc: Run go fmt against code.
     cmds:

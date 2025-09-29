@@ -1,7 +1,7 @@
 version: "3"
 
 vars:
-  LOCALBIN: '{{ printf "%s/bin" .USER_WORKING_DIR }}'
+  LOCALBIN: '{{ printf "%s/.bin" .USER_WORKING_DIR }}'
 
 includes:
   deps:

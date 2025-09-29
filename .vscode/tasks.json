@@ -1,0 +1,29 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "dev:manifests",
+            "command": "task",
+            "type": "shell",
+            "args": [ "dev:manifests" ],
+            "problemMatcher": {
+                "owner": "golang",
+                "fileLocation": [
+                    "absolute"
+                ],
+                "source": "controller-gen",
+                "pattern": {
+                    "regexp": "^(.+):(\\d+):(\\d+): (.+)+$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "message": 4
+                }
+            },
+            "presentation": {
+                "reveal": "never"
+            },
+            "group": "build"
+        },
+    ]
+}

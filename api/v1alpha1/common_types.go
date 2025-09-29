@@ -46,7 +46,7 @@ func (s *SecretKeySelector) ContainsKey(c *client.Client, ctx context.Context, n
 	}
 
 	if _, ok := secret.Data[s.SecretRef.Key]; !ok {
-		return nil, fmt.Errorf("Secret `%s` does not contains key `%s`", secret.Name, s.SecretRef.Key)
+		return nil, fmt.Errorf("secret `%s` does not contains key `%s`", secret.Name, s.SecretRef.Key)
 	}
 	return &secret, nil
 }
@@ -62,7 +62,7 @@ func (s *SecretSelector) ContainsKey(c *client.Client, ctx context.Context, name
 	}
 
 	if _, ok := secret.Data[key]; !ok {
-		return nil, fmt.Errorf("Secret `%s` does not contains key `%s`", secret.Name, key)
+		return nil, fmt.Errorf("secret `%s` does not contains key `%s`", secret.Name, key)
 	}
 	return &secret, nil
 }
@@ -73,7 +73,7 @@ func (s *SecretSelector) IsKind(c *client.Client, ctx context.Context, namespace
 		return nil, err
 	}
 	if secret.Type != kind {
-		return nil, fmt.Errorf("Secret %s is not a %s", s.SecretRef.Name, kind)
+		return nil, fmt.Errorf("secret %s is not a %s", s.SecretRef.Name, kind)
 	}
 	return &secret, nil
 }

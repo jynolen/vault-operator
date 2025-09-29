@@ -25,7 +25,6 @@ import (
 	"github.com/Masterminds/sprig/v3"
 	"github.com/jynolen/vault-operator/internal/utils"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -91,8 +90,8 @@ func (s *ServiceRegistrationKubernetesSpec) Secrets(c *client.Client, ctx contex
 }
 
 // Volumes implements ConfigBuilderHelper.
-func (s *ServiceRegistrationKubernetesSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]v1.Volume, []v1.VolumeMount, error) {
-	return []v1.Volume{}, []v1.VolumeMount{}, nil
+func (s *ServiceRegistrationKubernetesSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
+	return []corev1.Volume{}, []corev1.VolumeMount{}, nil
 }
 
 func (s *ServiceRegistrationKubernetesSpec) Type() string {

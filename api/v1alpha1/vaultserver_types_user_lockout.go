@@ -100,5 +100,5 @@ func (s *UserLockoutSpec) MapValue() (map[string]any, error) {
 	if s.AppRole != nil {
 		return s.AppRole.MapValue()
 	}
-	return nil, errors.New("Undefined UserLockout")
+	return nil, errors.New("undefined userLockout")
 }
