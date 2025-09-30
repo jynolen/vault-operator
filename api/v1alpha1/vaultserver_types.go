@@ -69,9 +69,9 @@ func (v *VaultServer) Volumes(c *client.Client, ctx context.Context) ([]corev1.V
 }
 
 type VaultServerSpec struct {
-	Size   int32             `json:"size"`
-	Image  string            `json:"image"`
-	Labels map[string]string `json:"labels,omitempty"`
+	Replicas int32             `json:"replicas"`
+	Image    string            `json:"image"`
+	Labels   map[string]string `json:"labels,omitempty"`
 
 	PersistentVolumeClaim *corev1.PersistentVolumeClaim  `json:"persistentVolumeClaim,omitempty"`
 	Config                *VaultServerConfigSpec         `json:"config"`

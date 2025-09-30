@@ -1,4 +1,5 @@
-version: "3"
+---
+version: 3
 
 vars:
   LOCALBIN: '{{ printf "%s/.bin" .USER_WORKING_DIR }}'
@@ -6,7 +7,8 @@ vars:
 
 includes:
   deps:
-    taskfile: "Taskfile.deps.yaml"
+    dir: ..
+    taskfile: Taskfile.deps.yaml
     internal: true
 
 tasks:
@@ -19,7 +21,7 @@ tasks:
     deps:
       - deps:go:controller-gen:install
     cmds:
-      - "{{ .LOCALBIN }}/controller-gen paths='{{ .USER_WORKING_DIR }}/...'  rbac:roleName=manager-role crd webhook object:headerFile='{{ .USER_WORKING_DIR }}/hack/boilerplate.go.txt' output:crd:artifacts:config={{ .USER_WORKING_DIR }}/config/crd/bases"
+      - .bin/controller-gen paths='...'  rbac:roleName=manager-role crd webhook object:headerFile='hack/boilerplate.go.txt' output:crd:artifacts:config=config/crd/bases
     sources:
       - api/**/*.go
       - exclude: api/**/zz_generated.deepcopy.go
@@ -29,12 +31,12 @@ tasks:
   fmt:
     desc: Run go fmt against code.
     cmds:
-      - go fmt {{ .USER_WORKING_DIR }}/...
-  
+      - go fmt ...
+
   vet:
     desc: Run go vet against code.
     cmds:
-      - go vet {{ .USER_WORKING_DIR }}/...
+      - go vet ...
 
   test:
     desc: Run tests.
@@ -45,10 +47,10 @@ tasks:
       - vet
     env:
       KUBEBUILDER_ASSETS:
-        sh: "{{ .LOCALBIN }}/setup-envtest use --bin-dir {{ .LOCALBIN }} -p path"
+        sh: .bin/setup-envtest use --bin-dir .bin -p path
     vars:
       GO_LIST:
-        sh: go list {{ .USER_WORKING_DIR }}/... | grep -v /e2e
+        sh: go list ... | grep -v /e2e
     cmds:
       - go test {{ .GO_LIST | replace "\n" " "}} -coverprofile cover.out
 
@@ -57,7 +59,7 @@ tasks:
     deps:
       - deps:ensure-kind
     cmds:
-      - "kind create cluster --name {{.KIND_CLUSTER}}"
+      - kind create cluster --name {{.KIND_CLUSTER}
     status:
       - kind get clusters | grep {{.KIND_CLUSTER}}
 
@@ -80,7 +82,7 @@ tasks:
     deps:
       - deps:ensure-kind
     desc: Tear down the Kind cluster used for e2e tests
-    cmd: "kind delete cluster --name {{.KIND_CLUSTER}}"
+    cmd: kind delete cluster --name {{.KIND_CLUSTER}}
     status:
       - kind get clusters | grep {{.KIND_CLUSTER}}
 
@@ -89,17 +91,17 @@ tasks:
     deps:
       - deps:go:golangci-lint:install
       - manifests
-    cmd: "{{ .LOCALBIN }}/golangci-lint run"
+    cmd: .bin/golangci-lint run
 
   lint-fix:
     desc: Run golangci-lint linter and perform fixes
     deps:
       - deps:go:golangci-lint:install
       - manifests
-    cmd: "{{ .LOCALBIN }}/golangci-lint run --fix"
+    cmd: .bin/golangci-lint run --fix
 
   lint-config:
     desc: Verify golangci-lint linter configuration
     deps:
       - deps:go:golangci-lint:install
-    cmd: "{{ .LOCALBIN }}/golangci-lint config verify"
+    cmd: .bin/golangci-lint config verify

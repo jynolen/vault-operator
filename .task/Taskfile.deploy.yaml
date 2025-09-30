@@ -1,30 +1,32 @@
-version: "3"
-
-vars:
-  LOCALBIN: '{{ printf "%s/.bin" .USER_WORKING_DIR }}'
+---
+version: 3
 
 includes:
   deps:
-    taskfile: "Taskfile.deps.yaml"
+    dir: ..
+    taskfile: Taskfile.deps.yaml
     internal: true
   dev:
-    taskfile: "Taskfile.dev.yaml"
-    internal: true 
+    dir: ..
+    taskfile: Taskfile.dev.yaml
+    internal: true
+
 tasks:
   crds:
     desc: Install CRDs into the K8s cluster specified in ~/.kube/config.
     deps:
+      - dev:manifests
       - deps:go:k8s:install
     cmds:
-    - task: dev:manifests
-    - "{{ .LOCALBIN }}/kubectl apply -k {{ .USER_WORKING_DIR }}/config/crd"
-
+      - .bin/kubectl apply -k config/crd
+    sources:
+      - config/crd/**/*.yaml
   crds:uninstall:
     desc: Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
     deps:
       - dev:manifests
       - deps:go:k8s:install
-    cmd: "{{ .LOCALBIN }}/kubectl delete --ignore-not-found=false -k {{ .USER_WORKING_DIR }}/config/crd"
+    cmd: .bin/kubectl delete --ignore-not-found=false -k config/crd
 
   controller:
     desc: Deploy controller to the K8s cluster specified in ~/.kube/config.
@@ -34,30 +36,36 @@ tasks:
       - deps:go:k8s:install
     dir: config/manager
     cmds:
-      - "{{ .LOCALBIN }}/kustomize edit set image controller={{.IMG}}"
-      - "{{ .LOCALBIN }}/kubectl apply -k {{ .USER_WORKING_DIR }}/config/default"
+      - .bin/kustomize edit set image controller={{.IMG}}
+      - .bin/kubectl apply -k config/default"
 
   controller:uninstall:
     desc: Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
     deps:
       - deps:go:k8s:install
     cmds:
-      - "{{ .LOCALBIN }}/kubectl delete --ignore-not-found=false -k {{ .USER_WORKING_DIR }}/config/default"
+      - .bin/kubectl delete --ignore-not-found=false -k config/default"
 
   _sample:create:
     internal: true
-    cmd: "{{ .LOCALBIN }}/kubectl create -k {{ .USER_WORKING_DIR }}/config/samples"
+    cmd: .bin/kubectl create -k config/samples
     status:
-    - "{{ .LOCALBIN }}/kubectl get -k { .USER_WORKING_DIR }}/config/samples || true" 
+      - .bin/kubectl get -k config/samples || true
 
   _sample:replace:
     internal: true
-    cmd: "{{ .LOCALBIN }}/kubectl replace -k {{ .USER_WORKING_DIR }}/config/samples"
+    cmd: .bin/kubectl replace -k config/samples
     status:
-    - "{{ .LOCALBIN }}/kubectl get -k { .USER_WORKING_DIR }}/config/samples && false"
+      - .bin/kubectl get -k config/samples && false
 
   samples:
     desc: Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+    deps:
+      - crds 
     cmds:
       - task: _sample:create
       - task: _sample:replace
+    sources:
+      - config/samples/**/*.yaml
+      - config/samples/*.yaml
+      

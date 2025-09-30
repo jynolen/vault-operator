@@ -1,8 +1,9 @@
+---
 version: "3"
 
 vars:
   LOCALBIN: '{{ printf "%s/.bin" .USER_WORKING_DIR }}'
-  ENVTEST_VERSION:  '{{ .ENVTEST_VERSION | default "release-0.22" }}'
+  ENVTEST_VERSION: '{{ .ENVTEST_VERSION | default "release-0.22" }}'
   ENVTEST_K8S_VERSION: '{{ .ENVTEST_K8S_VERSION | default "1.33.0" }}'
   GOLANGCI_LINT_VERSION: '{{ .GOLANGCI_LINT_VERSION | default "v2.4.0" }}'
   CONTROLLER_TOOLS_VERSION: '{{ .CONTROLLER_TOOLS_VERSION | default "v0.18.0" }}'
@@ -12,15 +13,15 @@ tasks:
   default:
     cmds:
       - task: go-tools
-      
+
   folder:
-    label: "Ensuring {{ .LOCALBIN }} exists"
-    cmd: mkdir -p {{ .LOCALBIN }}
+    label: Ensuring .bin exists
+    cmd: mkdir -p .bin
     internal: true
     status:
-      - test -d {{ .LOCALBIN }}
+      - test -d .bin
     generates:
-      - "{{ .LOCALBIN }}"
+      - .bin
 
   _internal:*:install:
     label: "{{index .MATCH 0}}:install"
@@ -31,49 +32,48 @@ tasks:
       GOPKG: "{{ .GOPKG | default (index .MATCH 0) }}"
       package: "{{ .GOPKG_SRC }}@{{ .GOPKG_VERSION }}"
     env:
-      GOBIN: "{{ .LOCALBIN }}"
+      GOBIN: "{{ .USER_WORKING_DIR}}/.bin"
     cmds:
       - echo Downloading {{ .package }}
       - go install {{ .package }}
     generates:
-      - "{{.GOPKG }}"
+      - .bin/{{.GOPKG }}
     status:
-      - test -x {{ .LOCALBIN }}/{{.GOPKG }}
+      - test -x .bin/{{.GOPKG }}
 
   go:setup-envtest:install:
     internal: true
     vars:
-      GOPKG: "setup-envtest"
-      package: "sigs.k8s.io/controller-runtime/tools/setup-envtest@{{ .ENVTEST_VERSION }}"
+      GOPKG: setup-envtest
+      package: sigs.k8s.io/controller-runtime/tools/setup-envtest@{{ .ENVTEST_VERSION }}
     env:
-      GOBIN: "{{ .LOCALBIN }}"
+      GOBIN: "{{ .USER_WORKING_DIR}}/.bin"
     cmds:
       - echo Downloading {{ .package }}
       - go install "{{ .package}}"
     generates:
-      - "{{ .LOCALBIN }}/setup-envtest"
+      - .bin/setup-envtest
     status:
-      - test -x {{ .LOCALBIN }}/setup-envtest
-      
+      - test -x .bin/setup-envtest
+
   go:k8s:install:
     internal: true
     env:
-      GOBIN: "{{ .LOCALBIN }}"
+      GOBIN: "{{ .USER_WORKING_DIR}}/.bin"
     cmds:
       - task: go:setup-envtest:install
-      - go install "sigs.k8s.io/controller-runtime/tools/setup-envtest@{{ .ENVTEST_VERSION }}"
-      - "{{ .LOCALBIN }}/setup-envtest use {{ .ENVTEST_K8S_VERSION }} --bin-dir {{ .LOCALBIN }} > /dev/null"
-      - chmod 755 {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}
-      - ln -sf {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kubectl {{ .LOCALBIN }}/kubectl
-      - ln -sf {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/etcd {{ .LOCALBIN }}/etcd
-      - ln -sf {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kube-apiserver {{ .LOCALBIN }}/kube-apiserver
+      - .bin/setup-envtest use {{ .ENVTEST_K8S_VERSION }} --bin-dir .bin > /dev/null
+      - chmod 755 .bin/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}
+      - ln -sf {{ .USER_WORKING_DIR}}/.bin/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kubectl .bin/kubectl
+      - ln -sf {{ .USER_WORKING_DIR}}/.bin/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/etcd .bin/etcd
+      - ln -sf {{ .USER_WORKING_DIR}}/.bin/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kube-apiserver .bin/kube-apiserver
     status:
-      - test -x {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/etcd
-      - test -x {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kube-apiserver
-      - test -x {{ .LOCALBIN }}/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kubectl
-      - test -L {{ .LOCALBIN }}/etcd
-      - test -L {{ .LOCALBIN }}/kube-apiserver
-      - test -L {{ .LOCALBIN }}/kubectl
+      - test -x .bin/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/etcd
+      - test -x .bin/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kube-apiserver
+      - test -x .bin/k8s/{{ .ENVTEST_K8S_VERSION }}-{{OS}}-{{ARCH}}/kubectl
+      - test -L .bin/etcd
+      - test -L .bin/kube-apiserver
+      - test -L .bin/kubectl
 
   go:kustomize:install:
     internal: true

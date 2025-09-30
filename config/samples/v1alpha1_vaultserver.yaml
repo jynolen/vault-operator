@@ -68,6 +68,4 @@ spec:
           leaderApiAddr: 127.0.0.1:8200
 
   image: ""
-  size: 0
-
-  
+  size: 1sssd

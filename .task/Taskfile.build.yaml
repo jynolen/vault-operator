@@ -1,19 +1,24 @@
-version: "3"
+---
+version: 3
 
 vars:
-  LOCALBIN: '{{ printf "%s/.bin" .USER_WORKING_DIR }}'
   CONTAINER_TOOL: '{{ .CONTAINER_TOOL | default "podman" }}'
 
 includes:
   deps:
-    taskfile: "Taskfile.deps.yaml"
+    taskfile: Taskfile.deps.yaml
+    dir: ..
     internal: true
   dev:
-    taskfile: "Taskfile.dev.yaml"
+    taskfile: Taskfile.dev.yaml
+    dir: ..
     internal: true
   deploy:
-    taskfile: "Taskfile.deploy.yaml"
+    taskfile: Taskfile.deploy.yaml
+    dir: ..
     internal: true
+
+
 tasks:
   default:
     desc: Build manager binary.
@@ -22,7 +27,7 @@ tasks:
       - dev:fmt
       - dev:vet
     cmds:
-      - go build -o {{ .USER_WORKING_DIR }}/bin/manager {{ .USER_WORKING_DIR }}/cmd/main.go
+      - go build -o bin/manager cmd/main.go
     generates:
       - bin/manager
     sources:
@@ -38,9 +43,9 @@ tasks:
       - deploy:crds
     vars:
       GO_LIST:
-        sh: go list {{ .USER_WORKING_DIR }}/... | grep -v /e2e
+        sh: go list ... | grep -v /e2e
     cmds:
-      - go run {{ .USER_WORKING_DIR }}/cmd/main.go
+      - go run cmd/main.go
 
   docker:
     desc: Build docker image with the manager.
@@ -84,12 +89,12 @@ tasks:
     dir: config/default
     cmds:
       - mkdir -p {{.ROOT_DIR}}/dist
-      - "{{ .LOCALBIN }}/kustomize edit set image controller={{.IMG}}"
-      - "{{ .LOCALBIN }}/kustomize build config/default > {{.ROOT_DIR}}/dist/install.yaml"
+      - .bin/kustomize edit set image controller={{.IMG}}
+      - .bin/kustomize build config/default > dist/install.yaml
     generates:
-      - "{{.ROOT_DIR}}/dist"
+      - dist
     sources:
-      - "{{.ROOT_DIR}}/Dockerfile"
-      - "{{.ROOT_DIR}}/cmd/*"
-      - "{{.ROOT_DIR}}/internal/**"
-      - "{{.ROOT_DIR}}/api/**"
+      - Dockerfile
+      - cmd/*
+      - internal/**
+      - api/**

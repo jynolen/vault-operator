@@ -2,9 +2,6 @@
 
 version: "3"
 
-vars:
-  LOCALBIN: '{{ printf "%s/.bin" .USER_WORKING_DIR }}'
-
 includes:
   deps:
     taskfile: ".task/Taskfile.deps.yaml"
@@ -14,11 +11,3 @@ includes:
     taskfile: ".task/Taskfile.build.yaml"
   dev:
     taskfile: ".task/Taskfile.dev.yaml"
-
-tasks:
-  samples:
-    deps:
-      - deps:go:k8s:install
-    cmds:
-      - "{{ .LOCALBIN }}/kubectl delete -k {{.ROOT_DIR}}/config/samples"
-      - "{{ .LOCALBIN }}/kubectl apply -k {{.ROOT_DIR}}/config/samples"

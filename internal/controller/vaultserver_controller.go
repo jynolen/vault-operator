@@ -370,7 +370,7 @@ func (r *VaultServerReconciler) statefulSetForVaultServer(
 	ctx context.Context,
 	vaultServer *v1alpha1.VaultServer,
 ) (*appsv1.StatefulSet, error) {
-	replicas := vaultServer.Spec.Size
+	replicas := vaultServer.Spec.Replicas
 	addressPort, err := strconv.ParseInt(vaultServer.Spec.Config.ListenerTcp.Address().Port(), 10, 32)
 	if err != nil {
 		return nil, err

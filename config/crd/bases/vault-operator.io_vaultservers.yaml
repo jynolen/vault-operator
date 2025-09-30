@@ -2432,6 +2432,9 @@ spec:
                         type: string
                     type: object
                 type: object
+              replicas:
+                format: int32
+                type: integer
               secretMapOverride:
                 properties:
                   configMapOverride:
@@ -2442,13 +2445,10 @@ spec:
                       type: string
                     type: object
                 type: object
-              size:
-                format: int32
-                type: integer
             required:
             - config
             - image
-            - size
+            - replicas
             type: object
           status:
             description: VaultServerStatus defines the observed state of VaultServer.
