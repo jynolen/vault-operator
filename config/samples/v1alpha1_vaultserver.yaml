@@ -66,6 +66,5 @@ spec:
         retryJoin:
         - autoJoinScheme: https
           leaderApiAddr: 127.0.0.1:8200
-
   image: ""
-  size: 1sssd
+  size: 1

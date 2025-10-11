@@ -27,13 +27,27 @@ tasks:
       - dev:fmt
       - dev:vet
     cmds:
-      - go build -o bin/manager cmd/main.go
+      - go build -o .bin/manager cmd/main.go
     generates:
-      - bin/manager
+      - .bin/manager
     sources:
       - cmd/*
       - internal/**
 
+  debug:
+    desc: Build manager binary for debug.
+    deps:
+      - dev:manifests
+      - dev:fmt
+      - dev:vet
+    cmds:
+      - go build -gcflags=all="-N -l" -o .bin/manager-debug cmd/main.go
+    generates:
+      - .bin/manager-debug
+    sources:
+      - cmd/*
+      - internal/**
+  
   run:
     desc: Run a controller from your host.
     deps:
@@ -46,7 +60,7 @@ tasks:
         sh: go list ... | grep -v /e2e
     cmds:
       - go run cmd/main.go
-
+  
   docker:
     desc: Build docker image with the manager.
     vars:
