@@ -66,5 +66,5 @@ spec:
         retryJoin:
         - autoJoinScheme: https
           leaderApiAddr: 127.0.0.1:8200
-  image: ""
-  size: 1
+  image: hashicorp/vault:1.21.0-rc1
+  replicas: 1

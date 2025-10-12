@@ -31,12 +31,12 @@ tasks:
   fmt:
     desc: Run go fmt against code.
     cmds:
-      - go fmt ...
+      - go fmt ./...
 
   vet:
     desc: Run go vet against code.
     cmds:
-      - go vet ...
+      - go vet ./...
 
   test:
     desc: Run tests.

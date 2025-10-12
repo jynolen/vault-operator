@@ -7,10 +7,8 @@ import (
 	"maps"
 	"regexp"
 	"strconv"
-	"text/template"
 	"time"
 
-	"github.com/Masterminds/sprig/v3"
 	"github.com/go-logr/logr"
 	server "github.com/hashicorp/vault/command/server"
 	"github.com/jynolen/vault-operator/api/v1alpha1"
@@ -24,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/diff"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,14 +38,6 @@ const (
 	typeDegradedVaultServer = "Degraded"
 
 	vaultOperatorFinalizer = "vault-operator.io/finalizer"
-)
-
-//go:embed template/config.gotpl
-var vaultConfigTemplateStr string
-
-var (
-	funcMap                                = map[string]any{"mapquote": utils.MapQuote}
-	VaultConfigTemplate *template.Template = template.Must(template.New("configMapGenerator").Funcs(sprig.FuncMap()).Funcs(funcMap).Parse(vaultConfigTemplateStr))
 )
 
 // VaultServerReconciler reconciles a VaultServer object.
@@ -184,11 +175,6 @@ func (r *VaultServerReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	// Check if the configMap already exists, if not create a new one
-	if err = r.reconcileConfigMap(ctx, vaultServer); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	if err = r.reconcileSecret(ctx, vaultServer); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -257,41 +243,33 @@ func (r *VaultServerReconciler) reconcileService(ctx context.Context, vaultServe
 }
 
 func (r *VaultServerReconciler) reconcileStatefulSet(ctx context.Context, vaultServer *v1alpha1.VaultServer) error {
-	return nil
-}
+	log := r.logger.WithValues("StatefulSet.Namespace", vaultServer.GetNamespace(), "StatefulSet.Name", vaultServer.Name)
 
-func (r *VaultServerReconciler) reconcileConfigMap(ctx context.Context, vaultServer *v1alpha1.VaultServer) error {
-	log := r.logger.WithValues("ConfigMap.Namespace", vaultServer.GetNamespace(), "ConfigMap.Name", vaultServer.GetConfigMapNameForVaultConfig())
-
-	if err := vaultServer.ResolveSecret(&r.Client, ctx); err != nil {
-		return err
-	}
-	secret, err := r.secretForVaultServer(vaultServer)
+	sts, err := r.statefulSetForVaultServer(ctx, vaultServer)
 	if err != nil {
 		log.Error(err, "Failed to template vault config, template error")
 		return err
 	}
-	found := &corev1.Secret{}
-	err = r.Get(ctx, types.NamespacedName{Name: vaultServer.GetConfigMapNameForVaultConfig(), Namespace: vaultServer.Namespace}, found)
+	found := &appsv1.StatefulSet{}
+	err = r.Get(ctx, types.NamespacedName{Name: vaultServer.Name, Namespace: vaultServer.Namespace}, found)
 	if err != nil && apierrors.IsNotFound(err) {
-		log.Info("Creating a new ConfigMap")
-		if err = r.Create(ctx, secret); err != nil {
-			log.Error(err, "Failed to create new configMap")
+		log.Info("Creating a new statefulset")
+		if err = r.Create(ctx, sts); err != nil {
+			log.Error(err, "Failed to create new secret")
 			return err
 		}
 		return nil
 	}
-	log.Info(fmt.Sprintf("Generated Vault-Config value %s\n", secret.Data["vault.hcl"]))
+	stsSpecDiff := diff.ObjectDiff(found.Spec, sts.Spec)
+	stsMetaDiff := diff.ObjectDiff(found.ObjectMeta, sts.ObjectMeta)
+	if stsSpecDiff != "" || stsMetaDiff != "" {
+		log.Info("Generated Vault-Config file diverge, updating the Secret")
 
-	if fmt.Sprintf("0x%x", xxh3.HashString(string(found.Data["vault.hcl"]))) != secret.Annotations[configChecksumAnnotationName(vaultServer.TypeMeta)] {
-		log.Info("Generated Vault-Config file diverge, updating the ConfigMap")
-
-		maps.Copy(found.Labels, secret.Labels)
-		found.Annotations[configChecksumAnnotationName(vaultServer.TypeMeta)] = secret.Annotations[configChecksumAnnotationName(vaultServer.TypeMeta)]
-		found.Data = secret.Data
+		maps.Copy(found.Labels, sts.Labels)
+		found.Spec = sts.Spec
 
 		if err = r.Update(ctx, found); err != nil {
-			log.Error(err, "Failed to create new configMap")
+			log.Error(err, "Failed to create new secret")
 			return err
 		}
 		return nil
@@ -325,7 +303,7 @@ func (r *VaultServerReconciler) secretForVaultServer(vaultServer *v1alpha1.Vault
 	secretAnnotations[configChecksumAnnotationName(vaultServer.TypeMeta)] = fmt.Sprintf("0x%x", xxh3.HashString(config))
 	cm := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        vaultServer.GetConfigMapNameForVaultConfig(),
+			Name:        vaultServer.GetSecretNameForVaultConfig(),
 			Namespace:   vaultServer.GetNamespace(),
 			Labels:      vaultServer.GetLabels(),
 			Annotations: secretAnnotations,
@@ -342,6 +320,41 @@ func (r *VaultServerReconciler) secretForVaultServer(vaultServer *v1alpha1.Vault
 }
 
 func (r *VaultServerReconciler) reconcileSecret(ctx context.Context, vaultServer *v1alpha1.VaultServer) error {
+	log := r.logger.WithValues("Secret.Namespace", vaultServer.GetNamespace(), "Secret.Name", vaultServer.GetSecretNameForVaultConfig())
+
+	if err := vaultServer.ResolveSecret(&r.Client, ctx); err != nil {
+		return err
+	}
+	secret, err := r.secretForVaultServer(vaultServer)
+	if err != nil {
+		log.Error(err, "Failed to template vault config, template error")
+		return err
+	}
+	found := &corev1.Secret{}
+	err = r.Get(ctx, types.NamespacedName{Name: vaultServer.GetSecretNameForVaultConfig(), Namespace: vaultServer.Namespace}, found)
+	if err != nil && apierrors.IsNotFound(err) {
+		log.Info("Creating a new secret")
+		if err = r.Create(ctx, secret); err != nil {
+			log.Error(err, "Failed to create new secret")
+			return err
+		}
+		return nil
+	}
+	log.Info(fmt.Sprintf("Generated Vault-Config value %s\n", secret.Data["vault.hcl"]))
+
+	if fmt.Sprintf("0x%x", xxh3.HashString(string(found.Data["vault.hcl"]))) != secret.Annotations[configChecksumAnnotationName(vaultServer.TypeMeta)] {
+		log.Info("Generated Vault-Config file diverge, updating the Secret")
+
+		maps.Copy(found.Labels, secret.Labels)
+		found.Annotations[configChecksumAnnotationName(vaultServer.TypeMeta)] = secret.Annotations[configChecksumAnnotationName(vaultServer.TypeMeta)]
+		found.Data = secret.Data
+
+		if err = r.Update(ctx, found); err != nil {
+			log.Error(err, "Failed to create new secret")
+			return err
+		}
+		return nil
+	}
 	return nil
 }
 

@@ -282,7 +282,7 @@ type VaultServerList struct {
 	Items           []VaultServer `json:"items"`
 }
 
-func (v *VaultServer) GetConfigMapNameForVaultConfig() string {
+func (v *VaultServer) GetSecretNameForVaultConfig() string {
 	generateName := fmt.Sprintf("%s-config", v.GetObjectMeta().GetName())
 	if v.Spec.SecretOverride == nil || v.Spec.SecretOverride.Name == "" {
 		return generateName
