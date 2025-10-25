@@ -6,6 +6,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: vaultserver-sample
 spec:
+  revisionHistoryLimit: 1
   config: 
     ui: True
     clusterName: Coucou
@@ -14,7 +15,7 @@ spec:
     defaultLeaseTTL: 2h7m5s
     listenerTcp:
       tls:
-        disable: false
+        disable: true
       httpTimeout:
         read: 10s
       xForwardedFor:
@@ -63,8 +64,10 @@ spec:
     #     lockBucketName: lol
     storage:
       raft:
-        retryJoin:
-        - autoJoinScheme: https
-          leaderApiAddr: 127.0.0.1:8200
+        volume:
+          name: raft-storage
+          emptyDir:
+            sizeLimit: 500Mi
+
   image: hashicorp/vault:1.21.0-rc1
   replicas: 1

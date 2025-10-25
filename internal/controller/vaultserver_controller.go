@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/google/go-cmp/cmp"
 	server "github.com/hashicorp/vault/command/server"
 	"github.com/jynolen/vault-operator/api/v1alpha1"
 	"github.com/jynolen/vault-operator/internal/utils"
-	"github.com/zeebo/xxh3"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -21,8 +21,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/diff"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,6 +56,7 @@ type VaultServerReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=service,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -239,7 +240,55 @@ func (r *VaultServerReconciler) waitForStatus(ctx context.Context, vaultServer *
 }
 
 func (r *VaultServerReconciler) reconcileService(ctx context.Context, vaultServer *v1alpha1.VaultServer) error {
+	log := r.logger.WithValues("Service.Namespace", vaultServer.GetNamespace(), "Service.Name", vaultServer.Name)
+	svc := r.serviceForVaultServer(vaultServer)
+	found := &corev1.Service{}
+	err := r.Get(ctx, types.NamespacedName{Name: vaultServer.Name, Namespace: vaultServer.Namespace}, found)
+	if err != nil && apierrors.IsNotFound(err) {
+		log.Info("Creating a new service")
+		if err = r.Create(ctx, svc); err != nil {
+			log.Error(err, "Failed to create new service")
+			return err
+		}
+		return nil
+	}
+	log.Info("Updating service")
+	found.Spec = svc.Spec
+	if err = r.Update(ctx, found); err != nil {
+		log.Error(err, "Failed to update service")
+		return err
+	}
+
 	return nil
+}
+
+func (r *VaultServerReconciler) serviceForVaultServer(vaultServer *v1alpha1.VaultServer) *corev1.Service {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      vaultServer.Name,
+			Namespace: vaultServer.Namespace,
+			Labels:    vaultServer.Labels(),
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: vaultServer.Labels(),
+			Type:     vaultServer.Spec.Service.Type,
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "api",
+					Port:       8200,
+					TargetPort: intstr.FromInt(8200),
+					Protocol:   corev1.ProtocolTCP,
+				},
+				{
+					Name:       "cluster",
+					Port:       8201,
+					TargetPort: intstr.FromInt(8201),
+					Protocol:   corev1.ProtocolTCP,
+				},
+			},
+		},
+	}
+	return svc
 }
 
 func (r *VaultServerReconciler) reconcileStatefulSet(ctx context.Context, vaultServer *v1alpha1.VaultServer) error {
@@ -255,26 +304,40 @@ func (r *VaultServerReconciler) reconcileStatefulSet(ctx context.Context, vaultS
 	if err != nil && apierrors.IsNotFound(err) {
 		log.Info("Creating a new statefulset")
 		if err = r.Create(ctx, sts); err != nil {
-			log.Error(err, "Failed to create new secret")
+			log.Error(err, "Failed to create new statefulset")
 			return err
 		}
 		return nil
 	}
-	stsSpecDiff := diff.ObjectDiff(found.Spec, sts.Spec)
-	stsMetaDiff := diff.ObjectDiff(found.ObjectMeta, sts.ObjectMeta)
-	if stsSpecDiff != "" || stsMetaDiff != "" {
-		log.Info("Generated Vault-Config file diverge, updating the Secret")
+
+	if r.isStsDiverging(sts, found) {
+		log.Info("Generated StatefulSet diverge, updating the StatefulSet")
 
 		maps.Copy(found.Labels, sts.Labels)
 		found.Spec = sts.Spec
-
 		if err = r.Update(ctx, found); err != nil {
-			log.Error(err, "Failed to create new secret")
+			log.Error(err, "Failed to update statefulset")
 			return err
 		}
 		return nil
 	}
 	return nil
+}
+
+func (r *VaultServerReconciler) isStsDiverging(new, old *appsv1.StatefulSet) bool {
+	if diff := cmp.Diff(new.Spec, old.Spec); diff != "" {
+		r.logger.V(8).Info(diff)
+		return true
+	}
+	if diff := cmp.Diff(new.ObjectMeta.Annotations, old.ObjectMeta.Annotations); diff != "" {
+		r.logger.V(8).Info(diff)
+		return true
+	}
+	if diff := cmp.Diff(new.ObjectMeta.Labels, old.ObjectMeta.Labels); diff != "" {
+		r.logger.V(8).Info(diff)
+		return true
+	}
+	return false
 }
 
 func configChecksumAnnotationName(obj metav1.TypeMeta) string {
@@ -291,7 +354,7 @@ func (r *VaultServerReconciler) secretForVaultServer(vaultServer *v1alpha1.Vault
 	}
 	config := re.ReplaceAllString(renderedConfig, "\n")
 	if _, err := server.ParseConfig(config, ""); err != nil {
-		r.logger.Info(fmt.Sprintf("Generated Vault-Config value %s\n", config))
+		r.logger.V(8).Info(fmt.Sprintf("Generated Vault-Config value %s\n", config))
 		r.logger.Error(err, "")
 		return nil, err
 	}
@@ -300,7 +363,7 @@ func (r *VaultServerReconciler) secretForVaultServer(vaultServer *v1alpha1.Vault
 		maps.Copy(secretData, vaultServer.Spec.SecretOverride.Data)
 	}
 	secretData["vault.hcl"] = ([]byte)(config)
-	secretAnnotations[configChecksumAnnotationName(vaultServer.TypeMeta)] = fmt.Sprintf("0x%x", xxh3.HashString(config))
+	secretAnnotations[configChecksumAnnotationName(vaultServer.TypeMeta)] = vaultServer.ConfigHash()
 	cm := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        vaultServer.GetSecretNameForVaultConfig(),
@@ -340,9 +403,9 @@ func (r *VaultServerReconciler) reconcileSecret(ctx context.Context, vaultServer
 		}
 		return nil
 	}
-	log.Info(fmt.Sprintf("Generated Vault-Config value %s\n", secret.Data["vault.hcl"]))
+	log.Info(fmt.Sprintf("Generated Vault-Config value %s\n", secret.Data[vaultServer.ServerConfigFileName()]))
 
-	if fmt.Sprintf("0x%x", xxh3.HashString(string(found.Data["vault.hcl"]))) != secret.Annotations[configChecksumAnnotationName(vaultServer.TypeMeta)] {
+	if found.Annotations[configChecksumAnnotationName(vaultServer.TypeMeta)] != secret.Annotations[configChecksumAnnotationName(vaultServer.TypeMeta)] {
 		log.Info("Generated Vault-Config file diverge, updating the Secret")
 
 		maps.Copy(found.Labels, secret.Labels)
@@ -396,6 +459,7 @@ func (r *VaultServerReconciler) statefulSetForVaultServer(
 	if err != nil {
 		return nil, err
 	}
+	partition := int32(0)
 
 	dep := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -404,13 +468,18 @@ func (r *VaultServerReconciler) statefulSetForVaultServer(
 			Labels:    vaultServer.Spec.Labels,
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: &replicas,
+			Replicas:             &replicas,
+			PodManagementPolicy:  appsv1.OrderedReadyPodManagement,
+			RevisionHistoryLimit: &vaultServer.Spec.RevisionHistoryLimit,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: vaultServer.Spec.Labels,
+				MatchLabels: vaultServer.Labels(),
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: vaultServer.Spec.Labels,
+					Labels: vaultServer.Labels(),
+					Annotations: map[string]string{
+						configChecksumAnnotationName(vaultServer.TypeMeta): vaultServer.ConfigHash(),
+					},
 				},
 				Spec: corev1.PodSpec{
 					SecurityContext: &corev1.PodSecurityContext{
@@ -418,7 +487,7 @@ func (r *VaultServerReconciler) statefulSetForVaultServer(
 					},
 					Containers: []corev1.Container{{
 						Image:           vaultServer.Spec.Image,
-						Name:            "vaultServer",
+						Name:            "vault-server",
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						SecurityContext: &corev1.SecurityContext{
 							RunAsNonRoot:             ptr.To(true),
@@ -431,16 +500,49 @@ func (r *VaultServerReconciler) statefulSetForVaultServer(
 						},
 						Ports: []corev1.ContainerPort{{
 							ContainerPort: int32(addressPort),
-							Name:          "ApiPort",
+							Name:          "api-port",
+							Protocol:      corev1.ProtocolTCP,
 						}, {
 							ContainerPort: int32(clusterPort),
-							Name:          "ClusterPort",
+							Name:          "cluster-port",
+							Protocol:      corev1.ProtocolTCP,
 						}},
-						Command:      []string{"vault", "server"},
-						VolumeMounts: stsVolumesMount,
+						LivenessProbe: &corev1.Probe{
+							InitialDelaySeconds: 10,
+							SuccessThreshold:    1,
+							FailureThreshold:    3,
+							PeriodSeconds:       10,
+							TimeoutSeconds:      1,
+							ProbeHandler: corev1.ProbeHandler{
+								HTTPGet: &corev1.HTTPGetAction{
+									Port:   intstr.FromInt(int(addressPort)),
+									Path:   "/v1/sys/health?standbyok=true&sealedcode=201&uninitcode=201",
+									Scheme: corev1.URIScheme(vaultServer.Spec.Config.ListenerTcp.Scheme()),
+								},
+							},
+						},
+						TerminationMessagePath:   "/dev/termination-log",
+						TerminationMessagePolicy: "File",
+						Command:                  []string{"vault", "server", "--config", vaultServer.ServerConfigFilePath()},
+						VolumeMounts:             stsVolumesMount,
 					}},
-					Volumes: stsVolumes,
+					Volumes:                       stsVolumes,
+					RestartPolicy:                 corev1.RestartPolicyAlways,
+					TerminationGracePeriodSeconds: &vaultServer.Spec.TerminationGracePeriodSeconds,
+					DNSPolicy:                     corev1.DNSClusterFirst,
+					SchedulerName:                 "default-scheduler",
 				},
+			},
+			VolumeClaimTemplates: vaultServer.Spec.PersistentVolumeClaim,
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+				Type: appsv1.RollingUpdateStatefulSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{
+					Partition: &partition,
+				},
+			},
+			PersistentVolumeClaimRetentionPolicy: &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
+				WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
+				WhenScaled:  appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 			},
 		},
 	}
@@ -459,6 +561,8 @@ func (r *VaultServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.VaultServer{}).
 		Named("vaultserver").
 		Owns(&appsv1.StatefulSet{}).
+		Owns(&corev1.Secret{}).
+		Owns(&corev1.Service{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
 		Complete(r)
 }

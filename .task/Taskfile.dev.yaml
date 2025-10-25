@@ -21,7 +21,7 @@ tasks:
     deps:
       - deps:go:controller-gen:install
     cmds:
-      - .bin/controller-gen paths='...'  rbac:roleName=manager-role crd webhook object:headerFile='hack/boilerplate.go.txt' output:crd:artifacts:config=config/crd/bases
+      - .bin/controller-gen paths='./...'  rbac:roleName=manager-role crd webhook object:headerFile='hack/boilerplate.go.txt' output:crd:artifacts:config=config/crd/bases
     sources:
       - api/**/*.go
       - exclude: api/**/zz_generated.deepcopy.go

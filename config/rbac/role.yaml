@@ -9,6 +9,7 @@ rules:
   resources:
   - configmaps
   - secrets
+  - service
   verbs:
   - create
   - delete

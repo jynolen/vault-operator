@@ -28,7 +28,10 @@ import (
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/jynolen/vault-operator/internal/utils"
+	"github.com/samber/lo"
+	"github.com/zeebo/xxh3"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -53,6 +56,16 @@ type VaultServer struct {
 	Status VaultServerStatus `json:"status,omitempty"`
 }
 
+func (v *VaultServer) ServerConfigFilePath() string {
+	return fmt.Sprintf("/vault/%s", v.ServerConfigFileName())
+}
+
+func (v *VaultServer) Labels() map[string]string {
+	labels := v.ObjectMeta.Labels
+	labels["vault-operator.io/instance"] = v.Name
+	return labels
+}
+
 func (v *VaultServer) ResolveSecret(c *client.Client, ctx context.Context) error {
 	if err := v.Spec.Config.ResolveSecret(c, ctx, v); err != nil {
 		return err
@@ -60,30 +73,83 @@ func (v *VaultServer) ResolveSecret(c *client.Client, ctx context.Context) error
 	return nil
 }
 
+func (v *VaultServer) ServerConfigFileName() string {
+	return "vault.hcl"
+}
+
 func (v *VaultServer) Volumes(c *client.Client, ctx context.Context) ([]corev1.Volume, []corev1.VolumeMount, error) {
-	if volumes, mounts, err := v.Spec.Config.Volumes(c, ctx, v); err != nil {
+	mode, quantity, volumes, mounts := int32(420), lo.Must(resource.ParseQuantity("128Mi")), []corev1.Volume{}, []corev1.VolumeMount{}
+	volumes = append(volumes, corev1.Volume{
+		Name: fmt.Sprintf("%s-server-config", v.GetSecretNameForVaultConfig()),
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName:  v.GetSecretNameForVaultConfig(),
+				DefaultMode: &mode,
+			},
+		},
+	})
+	volumes = append(volumes, corev1.Volume{
+		Name: fmt.Sprintf("%s-base-folder", v.GetSecretNameForVaultConfig()),
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{
+				SizeLimit: &quantity,
+				Medium:    corev1.StorageMediumDefault,
+			},
+		},
+	})
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      fmt.Sprintf("%s-server-config", v.GetSecretNameForVaultConfig()),
+		MountPath: v.ServerConfigFilePath(),
+		SubPath:   v.ServerConfigFileName(),
+	})
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      fmt.Sprintf("%s-base-folder", v.GetSecretNameForVaultConfig()),
+		MountPath: "/vault",
+	})
+	subVols, subVolMounts, err := v.Spec.Config.Volumes(c, ctx, v)
+	if err != nil {
 		return nil, nil, err
-	} else {
-		return volumes, mounts, nil
 	}
+	return append(volumes, subVols...), append(mounts, subVolMounts...), nil
+}
+
+func (v *VaultServer) PersistentVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
+	pvcTemplates := v.Spec.PersistentVolumeClaim
+	return append(pvcTemplates, v.Spec.Config.PersistentVolumeClaim()...)
+}
+
+func (v *VaultServer) ConfigHash() string {
+	hcl, _ := v.HclRender()
+	return fmt.Sprintf("0x%x", xxh3.HashString(hcl))
 }
 
 type VaultServerSpec struct {
-	Replicas int32             `json:"replicas"`
-	Image    string            `json:"image"`
-	Labels   map[string]string `json:"labels,omitempty"`
+	//+default=15
+	TerminationGracePeriodSeconds int64 `json:"terminationGracePeriodSeconds"`
+	//+default=3
+	RevisionHistoryLimit int32             `json:"revisionHistoryLimit"`
+	Replicas             int32             `json:"replicas"`
+	Image                string            `json:"image"`
+	Labels               map[string]string `json:"labels,omitempty"`
 
-	PersistentVolumeClaim *corev1.PersistentVolumeClaim  `json:"persistentVolumeClaim,omitempty"`
+	PersistentVolumeClaim []corev1.PersistentVolumeClaim `json:"volumeClaimTemplates,omitempty"`
 	Config                *VaultServerConfigSpec         `json:"config"`
 	SecretOverride        *VaultServerSecretOverrideSpec `json:"secretMapOverride,omitempty"`
+	Service               VaultServerServiceSpec         `json:"service,omitempty"`
+}
+
+type VaultServerServiceSpec struct {
+	//+default="ClusterIP"
+	Type corev1.ServiceType `json:"type,omitempty"`
 }
 
 type VaultServerConfigSpec struct {
 	*HclHelper `json:""`
 	// Operator Managed Config
-	ClusterName                    *string            `json:"clusterName,omitempty" hcl:"cluster_name"`
-	Ui                             *bool              `json:"ui,omitempty" hcl:"ui"`
-	DisableMLock                   *bool              `json:"disableMLock,omitempty" hcl:"disabled_mlock"`
+	ClusterName *string `json:"clusterName,omitempty" hcl:"cluster_name"`
+	Ui          *bool   `json:"ui,omitempty" hcl:"ui"`
+	// +default=true
+	DisableMLock                   bool               `json:"disableMLock,omitempty" hcl:"disable_mlock"`
 	CacheSize                      *int32             `json:"cacheSize,omitempty" hcl:"cache_size"`
 	DisableCache                   *bool              `json:"disableCache,omitempty" hcl:"disable_cache"`
 	DefaultLeaseTTL                *metav1.Duration   `json:"defaultLeaseTTL,omitempty" hcl:"default_lease_ttl"`
@@ -129,6 +195,10 @@ type VaultServerConfigSpec struct {
 	Reporting                  *ReportingSpec                  `json:"reporting,omitempty"`
 	Sentinel                   *SentinelSpec                   `json:"sentinel,omitempty"`
 	AdaptiveOverloadProtection *AdaptiveOverloadProtectionSpec `json:"adaptiveOverloadProtection,omitempty"`
+}
+
+func (v *VaultServerConfigSpec) PersistentVolumeClaim() []corev1.PersistentVolumeClaim {
+	return v.Storage.PersistentVolumeClaims()
 }
 
 func (v *VaultServerConfigSpec) Volumes(c *client.Client, ctx context.Context, vs *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
@@ -241,9 +311,9 @@ func (s *VaultServerConfigSpec) MapValue() (map[string]any, error) {
 	}
 
 	_m := map[string]any{
-		"cluster_addr":     strconv.Quote(fmt.Sprintf("%s://127.0.0.1:8201", scheme)),
-		"api_addr":         strconv.Quote(fmt.Sprintf("%s://127.0.0.1:8200", scheme)),
-		"pid_file":         strconv.Quote("/run/vault.pid"),
+		"cluster_addr":     strconv.Quote(fmt.Sprintf("%s://0.0.0.0:8201", scheme)),
+		"api_addr":         strconv.Quote(fmt.Sprintf("%s://0.0.0.0:8200", scheme)),
+		"pid_file":         strconv.Quote("/vault/vault.pid"),
 		"log_file":         strconv.Quote("/dev/stdout"),
 		"plugin_tmpdir":    strconv.Quote("/plugins/tmp"),
 		"plugin_directory": strconv.Quote("/plugins"),

@@ -1,0 +1,22 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: vaultserver-sample
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: envoy-proxy
+    namespace: envoy-gateway-system
+  hostnames: [ vault-dev.jynolen.fr ]
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: vaultserver-sample
+          port: 8200
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /

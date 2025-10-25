@@ -99,18 +99,25 @@ type ListenerTCPSpec struct {
 	CustomResponseHeaders  map[SpecificStatusCodeSpec]map[string][]string `json:"customResponseHeaders,omitempty"`
 }
 
+func (l *ListenerTCPSpec) Scheme() string {
+	if l.TLS.Disable {
+		return "HTTP"
+	}
+	return "HTTPS"
+}
+
 func (l *ListenerTCPSpec) Address() *url.URL {
-	return &url.URL{Host: "127.0.0.1:8200"}
+	return &url.URL{Host: "0.0.0.0:8200"}
 }
 
 func (l *ListenerTCPSpec) ClusterAddress() *url.URL {
-	return &url.URL{Host: "127.0.0.1:8201"}
+	return &url.URL{Host: "0.0.0.0:8201"}
 }
 
 func (l *ListenerTCPSpec) MapValue() (map[string]any, error) {
 	_m := map[string]any{
-		"address":      strconv.Quote(fmt.Sprintf("%s:%s", l.Address().Hostname(), l.Address().Port())),
-		"cluster_addr": strconv.Quote(fmt.Sprintf("%s:%s", l.ClusterAddress().Hostname(), l.ClusterAddress().Port())),
+		"address":         strconv.Quote(fmt.Sprintf("%s:%s", l.Address().Hostname(), l.Address().Port())),
+		"cluster_address": strconv.Quote(fmt.Sprintf("%s:%s", l.ClusterAddress().Hostname(), l.ClusterAddress().Port())),
 	}
 	if _s, err := utils.HclExport(*l); err != nil {
 		return nil, err

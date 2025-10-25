@@ -31,3 +31,6 @@ go.work
 
 .task/checksum
 .bundle
+.local/charts
+
+.local

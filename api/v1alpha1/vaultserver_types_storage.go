@@ -108,6 +108,10 @@ type StorageSpec struct {
 
 }
 
+func (s *StorageSpec) PersistentVolumeClaims() []corev1.PersistentVolumeClaim {
+	return []corev1.PersistentVolumeClaim{}
+}
+
 func (s *StorageSpec) Type() string {
 	return s.internalStorage().Type()
 }
@@ -281,6 +285,8 @@ type StorageRaftSpec struct {
 	MaxMountAndNamespaceTableEntrySize *int32                 `json:"maxMountAndNamespaceTableEntrySize,omitempty" hcl:"max_mount_and_namespace_table_entry_size"`
 	AutopilotReconcileInterval         *metav1.Duration       `json:"autopilotReconcileInterval,omitempty" hcl:"autopilot_reconcile_interval"`
 	AutopilotUpdateInterval            *metav1.Duration       `json:"autopilotUpdateInterval,omitempty" hcl:"autopilot_update_interval"`
+	//+kubebuilder:validation:Required
+	PersistentVolume corev1.Volume `json:"volume"`
 }
 
 // Secrets implements ConfigBuilderHelper.
@@ -290,7 +296,7 @@ func (s *StorageRaftSpec) Secrets(c *client.Client, ctx context.Context, vaultSe
 
 // Volumes implements ConfigBuilderHelper.
 func (s *StorageRaftSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
-	volumes, mounts := []corev1.Volume{}, []corev1.VolumeMount{}
+	volumes, mounts := []corev1.Volume{s.PersistentVolume}, []corev1.VolumeMount{}
 	for _, retry := range lo.Filter(s.RetryJoin, func(o StorageRaftRetrySpec, _ int) bool { return o.LeaderTls != nil }) {
 		v, m, err := retry.Volumes(c, ctx, vaultServer.Namespace)
 		if err != nil {
@@ -301,7 +307,7 @@ func (s *StorageRaftSpec) Volumes(c *client.Client, ctx context.Context, vaultSe
 		}
 	}
 	mounts = append(mounts, corev1.VolumeMount{
-		Name:      vaultServer.Spec.PersistentVolumeClaim.Spec.VolumeName,
+		Name:      s.PersistentVolume.Name,
 		MountPath: "/raft",
 	})
 	return volumes, mounts, nil
@@ -1700,7 +1706,8 @@ func (s *StorageInMemSpec) MapValue() (map[string]any, error) {
 }
 
 type StorageFileSystemSpec struct {
-	Path string `json:"-" hcl:"path"`
+	Path             string        `json:"-" hcl:"path"`
+	PersistentVolume corev1.Volume `json:"volume"`
 }
 
 // Secrets implements ConfigBuilderHelper.
@@ -1712,11 +1719,11 @@ func (s *StorageFileSystemSpec) Secrets(c *client.Client, ctx context.Context, v
 func (s *StorageFileSystemSpec) Volumes(c *client.Client, ctx context.Context, vaultServer *VaultServer) ([]corev1.Volume, []corev1.VolumeMount, error) {
 	mounts := []corev1.VolumeMount{
 		{
-			Name:      vaultServer.Spec.PersistentVolumeClaim.Spec.VolumeName,
+			Name:      s.PersistentVolume.Name,
 			MountPath: "/data",
 		},
 	}
-	return []corev1.Volume{}, mounts, nil
+	return []corev1.Volume{s.PersistentVolume}, mounts, nil
 }
 
 func (s *StorageFileSystemSpec) Type() string {

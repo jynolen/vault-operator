@@ -27,11 +27,12 @@ tasks:
       - dev:fmt
       - dev:vet
     cmds:
-      - go build -o .bin/manager cmd/main.go
+      - go build -o .bin/manager main.go
     generates:
       - .bin/manager
     sources:
-      - cmd/*
+      - api/**
+      - cmd/**
       - internal/**
 
   debug:
@@ -40,12 +41,14 @@ tasks:
       - dev:manifests
       - dev:fmt
       - dev:vet
+      - deploy:crds
     cmds:
-      - go build -gcflags=all="-N -l" -o .bin/manager-debug cmd/main.go
+      - go build -gcflags=all="-N -l" -o .bin/manager-debug main.go
     generates:
       - .bin/manager-debug
     sources:
-      - cmd/*
+      - api/**
+      - cmd/**
       - internal/**
   
   run:

@@ -19,8 +19,10 @@ tasks:
       - deps:go:k8s:install
     cmds:
       - .bin/kubectl apply -k config/crd
+      - .bin/kubectl apply -k config/rbac
     sources:
       - config/crd/**/*.yaml
+      - config/rbac/**/*.yaml
   crds:uninstall:
     desc: Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
     deps:
@@ -46,26 +48,9 @@ tasks:
     cmds:
       - .bin/kubectl delete --ignore-not-found=false -k config/default"
 
-  _sample:create:
-    internal: true
-    cmd: .bin/kubectl create -k config/samples
-    status:
-      - .bin/kubectl get -k config/samples || true
-
-  _sample:replace:
-    internal: true
-    cmd: .bin/kubectl replace -k config/samples
-    status:
-      - .bin/kubectl get -k config/samples && false
-
   samples:
     desc: Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
     deps:
       - crds 
     cmds:
-      - task: _sample:create
-      - task: _sample:replace
-    sources:
-      - config/samples/**/*.yaml
-      - config/samples/*.yaml
-      
+      - .bin/kubectl apply -k config/samples
