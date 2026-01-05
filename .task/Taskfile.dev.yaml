@@ -59,7 +59,7 @@ tasks:
     deps:
       - deps:ensure-kind
     cmds:
-      - kind create cluster --name {{.KIND_CLUSTER}
+      - kind create cluster --name {{.KIND_CLUSTER}}
     status:
       - kind get clusters | grep {{.KIND_CLUSTER}}
 
